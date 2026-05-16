@@ -14,7 +14,7 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const HOST = process.env.HOST || "0.0.0.0";
 const START_PORT = Number(process.env.PORT || 3000);
 
-export async function handleRequest(request, response) {
+async function handleRequest(request, response) {
   try {
     const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
     applyRoutedPath(url);
@@ -69,14 +69,7 @@ export default handleRequest;
 
 const server = createServer(handleRequest);
 
-export function handleVercelRequest(pathname) {
-  return (request, response) => {
-    request.url = `${pathname}${queryString(request.url)}`;
-    return handleRequest(request, response);
-  };
-}
-
-export async function handleWebRequest(request) {
+async function handleWebRequest(request) {
   const requestUrl = new URL(request.url);
   applyRoutedPath(requestUrl);
 
