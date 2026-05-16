@@ -67,6 +67,13 @@ export async function handleRequest(request, response) {
 
 const server = createServer(handleRequest);
 
+export function handleVercelRequest(pathname) {
+  return (request, response) => {
+    request.url = `${pathname}${queryString(request.url)}`;
+    return handleRequest(request, response);
+  };
+}
+
 export async function handleWebRequest(request) {
   const requestUrl = new URL(request.url);
   applyRoutedPath(requestUrl);
@@ -85,6 +92,11 @@ export async function handleWebRequest(request) {
   const nodeResponse = createWebResponseAdapter();
   await handleRequest(nodeRequest, nodeResponse);
   return nodeResponse.toResponse();
+}
+
+function queryString(url = "") {
+  const index = String(url).indexOf("?");
+  return index === -1 ? "" : String(url).slice(index);
 }
 
 function applyRoutedPath(url) {
