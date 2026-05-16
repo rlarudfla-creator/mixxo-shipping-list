@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { buildShippingList, createShippingWorkbook, parseDateRange } from "./shipping-core.mjs";
@@ -13,7 +14,7 @@ const HOST = process.env.HOST || "0.0.0.0";
 const START_PORT = Number(process.env.PORT || 3000);
 const sessions = new Map();
 
-const server = createServer(async (request, response) => {
+export async function handleRequest(request, response) {
   try {
     const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
 
@@ -61,7 +62,9 @@ const server = createServer(async (request, response) => {
   } catch (error) {
     sendText(response, 500, error.message || "서버 오류가 발생했습니다.");
   }
-});
+}
+
+const server = createServer(handleRequest);
 
 async function handleLogin(request, response) {
   const body = await readBody(request);
@@ -457,8 +460,14 @@ function openBrowser(url) {
   child.unref();
 }
 
-listenWithFallback().catch((error) => {
-  console.error("서버를 시작하지 못했습니다.");
-  console.error(error.message);
-  process.exitCode = 1;
-});
+function isDirectRun() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+}
+
+if (isDirectRun()) {
+  listenWithFallback().catch((error) => {
+    console.error("서버를 시작하지 못했습니다.");
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

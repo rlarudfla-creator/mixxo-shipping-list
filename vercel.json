@@ -1,0 +1,31 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm install",
+  "functions": {
+    "api/index.mjs": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/api"
+    },
+    {
+      "source": "/login",
+      "destination": "/api"
+    },
+    {
+      "source": "/logout",
+      "destination": "/api"
+    },
+    {
+      "source": "/api/preview",
+      "destination": "/api"
+    },
+    {
+      "source": "/download",
+      "destination": "/api"
+    }
+  ]
+}
