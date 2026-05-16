@@ -523,6 +523,12 @@ td {
   font-weight: 800;
 }
 
+.round-detail-table .round-total-row td {
+  border-top: 2px solid #b8c8c1;
+  background: #f2f6f4;
+  font-weight: 900;
+}
+
 .round-detail-summary {
   display: flex;
   flex-wrap: wrap;

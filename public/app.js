@@ -608,6 +608,12 @@ function renderRoundDetailRow(row, colSpan) {
   table.append(thead);
 
   const tbody = document.createElement("tbody");
+  const totalQuantity = row.roundDetails.reduce((sum, detail) => sum + (detail.quantityNumber || parseNumber(detail.quantity)), 0);
+  const rateSource = row.roundDetails.find((detail) => detail.orderQuantity || detail.cumulativeIncomingQuantity);
+  const orderQuantity = rateSource?.orderQuantity ?? 0;
+  const incomingQuantity = rateSource?.cumulativeIncomingQuantity ?? 0;
+  const totalShippingOrderRateText = orderQuantity > 0 ? formatPercent(totalQuantity / orderQuantity) : "";
+
   for (const detail of row.roundDetails) {
     const detailRow = document.createElement("tr");
     if (detail.style === row.style && detail.round === row.round && detail.shippingDate === row.shippingDate) {
@@ -637,28 +643,46 @@ function renderRoundDetailRow(row, colSpan) {
     }
     tbody.append(detailRow);
   }
+  tbody.append(renderRoundTotalRow(totalQuantity, totalShippingOrderRateText, orderQuantity));
   table.append(tbody);
   panel.append(table);
 
-  const totalQuantity = row.roundDetails.reduce((sum, detail) => sum + (detail.quantityNumber || parseNumber(detail.quantity)), 0);
-  panel.append(renderRoundDetailSummary(row.roundDetails, totalQuantity));
+  panel.append(renderRoundDetailSummary(orderQuantity, incomingQuantity, rateSource?.receivingRateText || ""));
 
   td.append(panel);
   tr.append(td);
   return tr;
 }
 
-function renderRoundDetailSummary(details, totalQuantity) {
+function renderRoundTotalRow(totalQuantity, totalShippingOrderRateText, orderQuantity) {
+  const tr = document.createElement("tr");
+  tr.className = "round-total-row";
+  const values = [
+    "TOTAL",
+    "",
+    "",
+    "",
+    formatNumber(totalQuantity),
+    totalShippingOrderRateText,
+    ""
+  ];
+  for (const value of values) {
+    const td = document.createElement("td");
+    td.textContent = value;
+    if (value === totalShippingOrderRateText && totalShippingOrderRateText) {
+      td.title = `총 수량 ${formatNumber(totalQuantity)} / 누적 발주량 ${formatNumber(orderQuantity)}`;
+    }
+    tr.append(td);
+  }
+  return tr;
+}
+
+function renderRoundDetailSummary(orderQuantity, incomingQuantity, receivingRateText) {
   const summary = document.createElement("div");
   summary.className = "round-detail-summary";
-  const rateSource = details.find((detail) => detail.orderQuantity || detail.cumulativeIncomingQuantity);
-  const orderQuantity = rateSource?.orderQuantity ?? 0;
-  const incomingQuantity = rateSource?.cumulativeIncomingQuantity ?? 0;
-  const receivingRateText = rateSource?.receivingRateText || "";
 
   for (const item of [
-    ["총 수량", formatNumber(totalQuantity)],
-    ["누적 발주량", orderQuantity ? formatNumber(orderQuantity) : "-"],
+    ["발주량", orderQuantity ? formatNumber(orderQuantity) : "-"],
     ["누적 입고량", incomingQuantity ? formatNumber(incomingQuantity) : "-"],
     ["입고 비중", receivingRateText || "-"]
   ]) {
@@ -674,6 +698,13 @@ function renderRoundDetailSummary(details, totalQuantity) {
   }
 
   return summary;
+}
+
+function formatPercent(value) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+  return `${(value * 100).toFixed(1).replace(/\.0$/, "")}%`;
 }
 
 function toggleSort(key) {
