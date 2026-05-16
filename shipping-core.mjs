@@ -3,6 +3,7 @@ import { deflateRawSync } from "node:zlib";
 export const SHEET_ID = "1RwWis6y9UYeOXGy-y1me7QQ2PMl1nZFM8KpViDX-6t8";
 export const SHEET_NAME = "출고가능리스트";
 export const ITEM_SHEET_NAME = "구분";
+export const BI_SHEET_NAME = "BI";
 export const CSV_URL = sheetCsvUrl(SHEET_NAME);
 
 export const OUTPUT_COLUMNS = [
@@ -51,10 +52,11 @@ const SUMMARY_ROW_DEFS = [
 export async function buildShippingList(inputDate, inputEndDate = inputDate, options = {}) {
   const { startDate, endDate } = parseDateRange(inputDate, inputEndDate);
   const targetSheetDate = formatPeriodLabel(startDate, endDate);
-  const [weekHolidays, rangeHolidays, itemClassifications] = await Promise.all([
+  const [weekHolidays, rangeHolidays, itemClassifications, receivingRates] = await Promise.all([
     loadKoreanHolidaysForWeek(startDate),
     loadKoreanHolidaysForRange(startDate, endDate),
-    loadItemClassifications()
+    loadItemClassifications(),
+    loadStyleReceivingRates()
   ]);
   const holidays = new Map([...weekHolidays.entries(), ...rangeHolidays.entries()]);
   const selectedDateStatus = isSameDate(startDate, endDate)
@@ -65,7 +67,7 @@ export async function buildShippingList(inputDate, inputEndDate = inputDate, opt
   const records = toRecords(rows);
   const validRecords = records.filter(isValidShippingRecord);
   const styleKeys = buildStyleKeySet(validRecords);
-  const roundDetailsByProduct = buildRoundDetailIndex(validRecords, startDate.getFullYear(), styleKeys);
+  const roundDetailsByProduct = buildRoundDetailIndex(validRecords, startDate.getFullYear(), styleKeys, receivingRates);
   const availableWeeks = buildAvailableWeeks(validRecords, startDate.getFullYear());
   const filtered = selectedDateStatus.closed
     ? []
@@ -394,6 +396,66 @@ function toItemClassifications(rows) {
   return result;
 }
 
+async function loadStyleReceivingRates() {
+  try {
+    const csv = await downloadCsv(BI_SHEET_NAME, ["발주량", "누적입고량"]);
+    return toStyleReceivingRates(parseCsv(csv));
+  } catch {
+    return new Map();
+  }
+}
+
+function toStyleReceivingRates(rows) {
+  const headerRowIndex = rows.findIndex((row) =>
+    row.some((cell) => normalizeHeader(cell).includes(normalizeHeader("스타일코드(Now)"))) &&
+    row.some((cell) => normalizeHeader(cell) === normalizeHeader("발주량")) &&
+    row.some((cell) => normalizeHeader(cell) === normalizeHeader("[+] 누적입고량(물류+입고조정+브랜드간)"))
+  );
+  if (headerRowIndex === -1) {
+    return new Map();
+  }
+
+  const headers = rows[headerRowIndex].map(cleanCell);
+  const styleIndex = findHeaderIndexIncludes(headers, "스타일코드(Now)");
+  const orderIndex = findHeaderIndex(headers, "발주량");
+  const incomingIndex = findHeaderIndex(headers, "[+] 누적입고량(물류+입고조정+브랜드간)");
+  const result = new Map();
+
+  for (const row of rows.slice(headerRowIndex + 1)) {
+    const style = cleanCell(row[styleIndex]).toUpperCase();
+    if (!style) {
+      continue;
+    }
+
+    const orderQuantity = parseQuantity(row[orderIndex]);
+    const cumulativeIncomingQuantity = parseQuantity(row[incomingIndex]);
+    const receivingRate = orderQuantity > 0 ? cumulativeIncomingQuantity / orderQuantity : null;
+    result.set(normalizeProductStyleCode(style), {
+      style,
+      orderQuantity,
+      cumulativeIncomingQuantity,
+      receivingRate,
+      receivingRateText: formatRate(receivingRate)
+    });
+  }
+
+  return result;
+}
+
+function findHeaderIndex(headers, name) {
+  const target = normalizeHeader(name);
+  return headers.findIndex((header) => normalizeHeader(header) === target);
+}
+
+function findHeaderIndexIncludes(headers, name) {
+  const target = normalizeHeader(name);
+  return headers.findIndex((header) => normalizeHeader(header).includes(target));
+}
+
+function normalizeHeader(value) {
+  return cleanCell(value).replace(/\s+/g, "");
+}
+
 function buildStyleKeySet(records) {
   return new Set(records.map((record) => normalizeProductStyleCode(record["스타일"])).filter(Boolean));
 }
@@ -414,8 +476,8 @@ function normalizeProductStyleCode(style) {
   return normalized.replace(/^(MIW|MIA)/, "");
 }
 
-function buildRoundDetailIndex(records, year, styleKeys) {
-  const result = new Map();
+function buildRoundDetailIndex(records, year, styleKeys, receivingRates = new Map()) {
+  const detailMapsByProduct = new Map();
 
   for (const record of records) {
     const style = cleanCell(record["스타일"]);
@@ -424,6 +486,8 @@ function buildRoundDetailIndex(records, year, styleKeys) {
     }
 
     const productKey = getRecordProductKey(record, styleKeys);
+    const styleKey = normalizeProductStyleCode(style);
+    const receivingRate = receivingRates.get(styleKey);
     const shippingDate = parseRecordDate(record["출고일자"], year);
     const incomingDate = parseRecordDate(record["입고일자"], year);
     const detail = {
@@ -436,25 +500,40 @@ function buildRoundDetailIndex(records, year, styleKeys) {
       incomingDateKey: formatFileDateSafe(incomingDate),
       quantity: cleanCell(record["출고수량\n(*50%)"]),
       quantityNumber: parseQuantity(record["출고수량\n(*50%)"]),
+      orderQuantity: receivingRate?.orderQuantity ?? null,
+      cumulativeIncomingQuantity: receivingRate?.cumulativeIncomingQuantity ?? null,
+      receivingRate: receivingRate?.receivingRate ?? null,
+      receivingRateText: receivingRate?.receivingRateText ?? "",
       stores: cleanCell(record["출고매장"]),
       note: cleanCell(record["비고"])
     };
 
-    if (!result.has(productKey)) {
-      result.set(productKey, []);
+    if (!detailMapsByProduct.has(productKey)) {
+      detailMapsByProduct.set(productKey, new Map());
     }
-    result.get(productKey).push(detail);
+    detailMapsByProduct.get(productKey).set(roundDuplicateKey(detail), detail);
   }
 
-  for (const details of result.values()) {
+  const result = new Map();
+  for (const [productKey, detailMap] of detailMapsByProduct) {
+    const details = [...detailMap.values()];
     details.sort((left, right) =>
       compareValues(left.round, right.round) ||
       compareValues(left.shippingDateKey, right.shippingDateKey) ||
       compareValues(left.incomingDateKey, right.incomingDateKey)
     );
+    result.set(productKey, details);
   }
 
   return result;
+}
+
+function roundDuplicateKey(detail) {
+  return [
+    normalizeProductStyleCode(detail.style),
+    detail.round,
+    detail.quantityNumber
+  ].join("|");
 }
 
 function applyRowFilters(rows, options = {}) {
@@ -801,6 +880,14 @@ function parseQuantity(value) {
 
 function compareValues(left, right) {
   return String(left || "").localeCompare(String(right || ""), "ko-KR", { numeric: true, sensitivity: "base" });
+}
+
+function formatRate(value) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+
+  return `${(value * 100).toFixed(1).replace(/\.0$/, "")}%`;
 }
 
 function formatPeriodLabel(startDate, endDate) {

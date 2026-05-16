@@ -599,7 +599,7 @@ function renderRoundDetailRow(row, colSpan) {
   table.className = "round-detail-table";
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
-  for (const header of ["스타일", "차수", "출고 예정일", "입고예정일", "수량", "출고매장"]) {
+  for (const header of ["스타일", "차수", "출고 예정일", "입고예정일", "수량", "입고비중", "출고매장"]) {
     const th = document.createElement("th");
     th.textContent = header;
     headerRow.append(th);
@@ -613,9 +613,26 @@ function renderRoundDetailRow(row, colSpan) {
     if (detail.style === row.style && detail.round === row.round && detail.shippingDate === row.shippingDate) {
       detailRow.className = "current-round";
     }
-    for (const value of [detail.style, detail.round, detail.shippingDate, detail.incomingDate, detail.quantity, detail.stores]) {
+    const detailValues = [
+      { value: detail.style },
+      { value: detail.round },
+      { value: detail.shippingDate },
+      { value: detail.incomingDate },
+      { value: detail.quantity },
+      {
+        value: detail.receivingRateText,
+        title: detail.receivingRateText
+          ? `누적입고량 ${formatNumber(detail.cumulativeIncomingQuantity)} / 발주량 ${formatNumber(detail.orderQuantity)}`
+          : ""
+      },
+      { value: detail.stores }
+    ];
+    for (const { value, title } of detailValues) {
       const tdDetail = document.createElement("td");
       tdDetail.textContent = value || "";
+      if (title) {
+        tdDetail.title = title;
+      }
       detailRow.append(tdDetail);
     }
     tbody.append(detailRow);
