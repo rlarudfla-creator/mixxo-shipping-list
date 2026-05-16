@@ -620,9 +620,9 @@ function renderRoundDetailRow(row, colSpan) {
       { value: detail.incomingDate },
       { value: detail.quantity },
       {
-        value: detail.receivingRateText,
-        title: detail.receivingRateText
-          ? `누적입고량 ${formatNumber(detail.cumulativeIncomingQuantity)} / 발주량 ${formatNumber(detail.orderQuantity)}`
+        value: detail.shippingOrderRateText,
+        title: detail.shippingOrderRateText
+          ? `수량 ${formatNumber(detail.quantityNumber || parseNumber(detail.quantity))} / 누적 발주량 ${formatNumber(detail.orderQuantity)}`
           : ""
       },
       { value: detail.stores }
@@ -641,14 +641,39 @@ function renderRoundDetailRow(row, colSpan) {
   panel.append(table);
 
   const totalQuantity = row.roundDetails.reduce((sum, detail) => sum + (detail.quantityNumber || parseNumber(detail.quantity)), 0);
-  const total = document.createElement("div");
-  total.className = "round-detail-total";
-  total.textContent = `총 수량 ${formatNumber(totalQuantity)}`;
-  panel.append(total);
+  panel.append(renderRoundDetailSummary(row.roundDetails, totalQuantity));
 
   td.append(panel);
   tr.append(td);
   return tr;
+}
+
+function renderRoundDetailSummary(details, totalQuantity) {
+  const summary = document.createElement("div");
+  summary.className = "round-detail-summary";
+  const rateSource = details.find((detail) => detail.orderQuantity || detail.cumulativeIncomingQuantity);
+  const orderQuantity = rateSource?.orderQuantity ?? 0;
+  const incomingQuantity = rateSource?.cumulativeIncomingQuantity ?? 0;
+  const receivingRateText = rateSource?.receivingRateText || "";
+
+  for (const item of [
+    ["총 수량", formatNumber(totalQuantity)],
+    ["누적 발주량", orderQuantity ? formatNumber(orderQuantity) : "-"],
+    ["누적 입고량", incomingQuantity ? formatNumber(incomingQuantity) : "-"],
+    ["입고 비중", receivingRateText || "-"]
+  ]) {
+    const badge = document.createElement("div");
+    badge.className = "round-detail-total";
+    const label = document.createElement("span");
+    label.className = "round-detail-total-label";
+    label.textContent = item[0];
+    const value = document.createElement("strong");
+    value.textContent = item[1];
+    badge.append(label, value);
+    summary.append(badge);
+  }
+
+  return summary;
 }
 
 function toggleSort(key) {

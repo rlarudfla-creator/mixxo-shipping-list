@@ -523,11 +523,18 @@ td {
   font-weight: 800;
 }
 
+.round-detail-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .round-detail-total {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   min-height: 32px;
-  margin-top: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 0 12px;
@@ -535,6 +542,11 @@ td {
   color: #28322e;
   font-size: 13px;
   font-weight: 900;
+}
+
+.round-detail-total-label {
+  color: var(--muted);
+  font-weight: 800;
 }
 
 tbody tr:last-child td {

@@ -504,6 +504,8 @@ function buildRoundDetailIndex(records, year, styleKeys, receivingRates = new Ma
       cumulativeIncomingQuantity: receivingRate?.cumulativeIncomingQuantity ?? null,
       receivingRate: receivingRate?.receivingRate ?? null,
       receivingRateText: receivingRate?.receivingRateText ?? "",
+      shippingOrderRate: receivingRate?.orderQuantity > 0 ? parseQuantity(record["출고수량\n(*50%)"]) / receivingRate.orderQuantity : null,
+      shippingOrderRateText: receivingRate?.orderQuantity > 0 ? formatRate(parseQuantity(record["출고수량\n(*50%)"]) / receivingRate.orderQuantity) : "",
       stores: cleanCell(record["출고매장"]),
       note: cleanCell(record["비고"])
     };
