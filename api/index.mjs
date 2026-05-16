@@ -1,6 +1,7 @@
 import { handleRequest, handleWebRequest } from "../server.mjs";
 
-async function handler(request, response) {
+async function handler(...args) {
+  const [request, response] = args;
   if (response && typeof response.writeHead === "function") {
     return handleRequest(request, response);
   }

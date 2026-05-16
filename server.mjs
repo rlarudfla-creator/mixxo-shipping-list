@@ -17,6 +17,7 @@ const START_PORT = Number(process.env.PORT || 3000);
 export async function handleRequest(request, response) {
   try {
     const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
+    applyRoutedPath(url);
 
     if (request.method === "GET" && url.pathname === "/") {
       return sendHtml(response, renderPage({ authenticated: isAuthenticated(request), loginError: url.searchParams.get("error") === "1" }));
@@ -68,11 +69,7 @@ const server = createServer(handleRequest);
 
 export async function handleWebRequest(request) {
   const requestUrl = new URL(request.url);
-  const routedPath = requestUrl.searchParams.get("__path");
-  if (routedPath) {
-    requestUrl.pathname = routedPath;
-    requestUrl.searchParams.delete("__path");
-  }
+  applyRoutedPath(requestUrl);
 
   const bodyBuffer = Buffer.from(await request.arrayBuffer());
   const nodeRequest = {
@@ -88,6 +85,14 @@ export async function handleWebRequest(request) {
   const nodeResponse = createWebResponseAdapter();
   await handleRequest(nodeRequest, nodeResponse);
   return nodeResponse.toResponse();
+}
+
+function applyRoutedPath(url) {
+  const routedPath = url.searchParams.get("__path");
+  if (routedPath) {
+    url.pathname = routedPath;
+    url.searchParams.delete("__path");
+  }
 }
 
 async function handleLogin(request, response) {
