@@ -1,18 +1,18 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { buildShippingList, createShippingWorkbook, parseDateRange } from "./shipping-core.mjs";
 
 const DEFAULT_PASSWORD = "1234";
 const PASSWORD = process.env.SHIPPING_LIST_PASSWORD || DEFAULT_PASSWORD;
+const SESSION_SECRET = process.env.SHIPPING_LIST_SESSION_SECRET || PASSWORD;
 const SESSION_COOKIE = "shipping_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const HOST = process.env.HOST || "0.0.0.0";
 const START_PORT = Number(process.env.PORT || 3000);
-const sessions = new Map();
 
 export async function handleRequest(request, response) {
   try {
@@ -65,6 +65,30 @@ export async function handleRequest(request, response) {
 }
 
 const server = createServer(handleRequest);
+
+export async function handleWebRequest(request) {
+  const requestUrl = new URL(request.url);
+  const routedPath = requestUrl.searchParams.get("__path");
+  if (routedPath) {
+    requestUrl.pathname = routedPath;
+    requestUrl.searchParams.delete("__path");
+  }
+
+  const bodyBuffer = Buffer.from(await request.arrayBuffer());
+  const nodeRequest = {
+    method: request.method,
+    url: `${requestUrl.pathname}${requestUrl.search}`,
+    headers: Object.fromEntries(request.headers.entries()),
+    async *[Symbol.asyncIterator]() {
+      if (bodyBuffer.length > 0) {
+        yield bodyBuffer;
+      }
+    }
+  };
+  const nodeResponse = createWebResponseAdapter();
+  await handleRequest(nodeRequest, nodeResponse);
+  return nodeResponse.toResponse();
+}
 
 async function handleLogin(request, response) {
   const body = await readBody(request);
@@ -160,27 +184,40 @@ function readListOptions(url) {
 }
 
 function createSession() {
-  const token = randomBytes(32).toString("base64url");
-  sessions.set(token, Date.now() + SESSION_TTL_MS);
-  return token;
+  const payload = `${Date.now() + SESSION_TTL_MS}.${randomBytes(16).toString("base64url")}`;
+  return `${payload}.${signSessionPayload(payload)}`;
 }
 
 function isAuthenticated(request) {
   const cookies = parseCookies(request.headers.cookie || "");
   const token = cookies[SESSION_COOKIE];
-  const expiresAt = token ? sessions.get(token) : undefined;
 
-  if (!expiresAt) {
+  if (!token) {
     return false;
   }
 
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    return false;
+  }
+
+  const [expiresAtText, nonce, signature] = parts;
+  const payload = `${expiresAtText}.${nonce}`;
+  const expectedSignature = signSessionPayload(payload);
+  if (!safeEqual(signature, expectedSignature)) {
+    return false;
+  }
+
+  const expiresAt = Number(expiresAtText);
   if (expiresAt < Date.now()) {
-    sessions.delete(token);
     return false;
   }
 
-  sessions.set(token, Date.now() + SESSION_TTL_MS);
   return true;
+}
+
+function signSessionPayload(payload) {
+  return createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
 }
 
 function parseCookies(cookieHeaderValue) {
@@ -229,8 +266,7 @@ async function readBody(request) {
 }
 
 async function serveStatic(response, filePath) {
-  const absolutePath = join(process.cwd(), filePath);
-  const body = await readFile(absolutePath);
+  const body = await readFile(new URL(filePath, import.meta.url));
   response.writeHead(200, {
     "Content-Type": mimeType(filePath),
     "Cache-Control": "no-store"
@@ -260,6 +296,34 @@ function sendText(response, status, text) {
     "Cache-Control": "no-store"
   });
   response.end(text);
+}
+
+function createWebResponseAdapter() {
+  const chunks = [];
+  let status = 200;
+  const headers = new Headers();
+
+  return {
+    writeHead(nextStatus, nextHeaders = {}) {
+      status = nextStatus;
+      for (const [key, value] of Object.entries(nextHeaders)) {
+        headers.set(key, String(value));
+      }
+    },
+    end(body = "") {
+      if (Buffer.isBuffer(body)) {
+        chunks.push(body);
+      } else if (body) {
+        chunks.push(Buffer.from(String(body)));
+      }
+    },
+    toResponse() {
+      return new Response(chunks.length ? Buffer.concat(chunks) : null, {
+        status,
+        headers
+      });
+    }
+  };
 }
 
 function mimeType(filePath) {

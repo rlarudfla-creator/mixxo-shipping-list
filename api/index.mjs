@@ -1,5 +1,21 @@
-import { handleRequest } from "../server.mjs";
+import { handleRequest, handleWebRequest } from "../server.mjs";
 
-export default function handler(request, response) {
-  return handleRequest(request, response);
+async function handler(request, response) {
+  if (response && typeof response.writeHead === "function") {
+    return handleRequest(request, response);
+  }
+
+  return handleWebRequest(request);
 }
+
+handler.fetch = handleWebRequest;
+
+export function GET(request) {
+  return handleWebRequest(request);
+}
+
+export function POST(request) {
+  return handleWebRequest(request);
+}
+
+export default handler;

@@ -17,6 +17,9 @@ Vercel 설정 화면에서 환경변수 `SHIPPING_LIST_PASSWORD`를 추가합니
 배포가 끝나면 Vercel이 `https://mixxo-shipping-list.vercel.app` 형태의 주소를 발급합니다.
 그 주소가 팀에서 사용할 Vercel 배포용 링크입니다.
 
+`npx plugins add vercel/vercel-plugin` 명령은 Vercel 배포에 필수인 명령이 아닙니다.
+이 저장소는 GitHub를 Vercel에 연결하고 `vercel.json` 설정으로 배포하면 됩니다.
+
 ## Render로 배포
 
 아래 버튼을 누르면 이 GitHub 저장소 기준으로 Render 배포를 시작할 수 있습니다.
