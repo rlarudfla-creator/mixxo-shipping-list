@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: mixxo-shipping-list
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: SHIPPING_LIST_PASSWORD
+        sync: false
