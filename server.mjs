@@ -65,6 +65,8 @@ export async function handleRequest(request, response) {
   }
 }
 
+export default handleRequest;
+
 const server = createServer(handleRequest);
 
 export function handleVercelRequest(pathname) {
