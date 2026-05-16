@@ -2,26 +2,38 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "npm install",
   "functions": {
-    "api/*.js": {
+    "api/index.js": {
       "maxDuration": 30
     }
   },
   "rewrites": [
     {
       "source": "/",
-      "destination": "/api/root"
+      "destination": "/api/index?__path=/"
     },
     {
       "source": "/login",
-      "destination": "/api/login"
+      "destination": "/api/index?__path=/login"
     },
     {
       "source": "/logout",
-      "destination": "/api/logout"
+      "destination": "/api/index?__path=/logout"
+    },
+    {
+      "source": "/app.css",
+      "destination": "/api/index?__path=/app.css"
+    },
+    {
+      "source": "/app.js",
+      "destination": "/api/index?__path=/app.js"
+    },
+    {
+      "source": "/api/preview",
+      "destination": "/api/index?__path=/api/preview"
     },
     {
       "source": "/download",
-      "destination": "/api/download"
+      "destination": "/api/index?__path=/download"
     }
   ]
 }
