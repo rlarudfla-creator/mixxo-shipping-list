@@ -1,5 +1,9 @@
-import handleRequest from "../server.mjs";
+import createHandlers from "../app-handler.mjs";
 
-export default function handler(request, response) {
-  return handleRequest(request, response);
-}
+const { handleWebRequest } = createHandlers();
+
+export default {
+  fetch(request) {
+    return handleWebRequest(request);
+  }
+};
