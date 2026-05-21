@@ -28,6 +28,7 @@ test("syncWeeklyAccumulation reads the weekly board, merges with stored rows, an
       C: "MIWTEST100",
       D: "0",
       CA: "김가영",
+      DH: "1000",
       DJ: "500",
       DL: "미입고",
       DQ: "05-20",
@@ -46,7 +47,8 @@ test("syncWeeklyAccumulation reads the weekly board, merges with stored rows, an
         groupNumber: 1,
         incomingDate: "2026-05-20",
         incomingQuantity: 200,
-        remainingQuantity: 500
+        remainingQuantity: 500,
+        orderQuantity: 950
       }
     ],
     fetchWeeklyRows: async () => weeklyRows,
@@ -58,6 +60,8 @@ test("syncWeeklyAccumulation reads the weekly board, merges with stored rows, an
   assert.equal(result.summary.updated, 1);
   assert.equal(result.summary.needsCheck, 1);
   assert.equal(savedItems[0].incomingQuantity, 250);
+  assert.equal(savedItems[0].orderQuantity, 1000);
+  assert.equal(savedItems[0].accumulatedQuantity, 750);
 });
 
 test("filterWeeklyItems narrows data by date range, planner, and issue-only flag", () => {

@@ -33,6 +33,7 @@ test("parseWeeklyBoardRows expands DQ to EH-before-core-product into dated incom
       C: "MIWTEST100",
       D: "0",
       CA: "김가영",
+      DH: "1000",
       DJ: "500",
       DL: "미입고",
       DQ: "05-20",
@@ -55,6 +56,7 @@ test("parseWeeklyBoardRows expands DQ to EH-before-core-product into dated incom
       plannerName: item.plannerName,
       incomingStatus: item.incomingStatus,
       remainingQuantity: item.remainingQuantity,
+      orderQuantity: item.orderQuantity,
       incomingDate: item.incomingDate,
       incomingQuantity: item.incomingQuantity,
       incomingAmount: item.incomingAmount,
@@ -70,6 +72,7 @@ test("parseWeeklyBoardRows expands DQ to EH-before-core-product into dated incom
         plannerName: "김가영",
         incomingStatus: "미입고",
         remainingQuantity: 500,
+        orderQuantity: 1000,
         incomingDate: "2026-05-20",
         incomingQuantity: 200,
         incomingAmount: 10000,
@@ -84,6 +87,7 @@ test("parseWeeklyBoardRows expands DQ to EH-before-core-product into dated incom
         plannerName: "김가영",
         incomingStatus: "미입고",
         remainingQuantity: 500,
+        orderQuantity: 1000,
         incomingDate: "2026-05-27",
         incomingQuantity: 300,
         incomingAmount: 15000,
@@ -93,6 +97,11 @@ test("parseWeeklyBoardRows expands DQ to EH-before-core-product into dated incom
       }
     ]
   );
+  assert.equal(result.groups[0].plannedQuantity, 500);
+  assert.equal(result.groups[0].remainingQuantity, 500);
+  assert.equal(result.groups[0].accumulatedQuantity, 1000);
+  assert.equal(result.groups[0].orderQuantity, 1000);
+  assert.equal(result.groups[0].validationStatus, "ok");
 });
 
 test("parseWeeklyBoardRows expands DZ-to-before-EH two-column period schedules", () => {
@@ -105,6 +114,7 @@ test("parseWeeklyBoardRows expands DZ-to-before-EH two-column period schedules",
       C: "MIWTEST200",
       D: "1",
       CA: "정다은",
+      DH: "7800",
       DJ: "3900",
       DL: "미입고",
       DQ: "05-20",
@@ -212,6 +222,9 @@ test("parseWeeklyBoardRows expands DZ-to-before-EH two-column period schedules",
     ]
   );
   assert.equal(result.groups[0].plannedQuantity, 3900);
+  assert.equal(result.groups[0].remainingQuantity, 3900);
+  assert.equal(result.groups[0].accumulatedQuantity, 7800);
+  assert.equal(result.groups[0].orderQuantity, 7800);
   assert.equal(result.groups[0].validationStatus, "ok");
 });
 
@@ -223,6 +236,7 @@ test("parseWeeklyBoardRows skips summary rows that are not style codes", () => {
       C: "2",
       D: "03",
       CA: "78",
+      DH: "110",
       DJ: "112",
       DL: "114",
       DQ: "05-20",
@@ -234,6 +248,7 @@ test("parseWeeklyBoardRows skips summary rows that are not style codes", () => {
       C: "MIWVALID100",
       D: "0",
       CA: "김가영",
+      DH: "1400",
       DJ: "700",
       DL: "미입고",
       DZ: "700",
@@ -272,6 +287,7 @@ test("mergeWeeklyAccumulated overwrites changed keys, skips identical rows, adds
       incomingDate: "2026-05-20",
       incomingQuantity: 150,
       remainingQuantity: 500,
+      orderQuantity: 1000,
       sourceStatus: "current",
       createdAt: "2026-05-01T00:00:00.000Z",
       updatedAt: "2026-05-01T00:00:00.000Z"
@@ -285,6 +301,7 @@ test("mergeWeeklyAccumulated overwrites changed keys, skips identical rows, adds
       incomingDate: "2026-05-27",
       incomingQuantity: 300,
       remainingQuantity: 500,
+      orderQuantity: 1000,
       sourceStatus: "current",
       createdAt: "2026-05-01T00:00:00.000Z",
       updatedAt: "2026-05-01T00:00:00.000Z"
@@ -298,6 +315,7 @@ test("mergeWeeklyAccumulated overwrites changed keys, skips identical rows, adds
       incomingDate: "2026-05-13",
       incomingQuantity: 100,
       remainingQuantity: 100,
+      orderQuantity: 200,
       sourceStatus: "current"
     }
   ];
@@ -310,7 +328,8 @@ test("mergeWeeklyAccumulated overwrites changed keys, skips identical rows, adds
       groupNumber: 1,
       incomingDate: "2026-05-20",
       incomingQuantity: 200,
-      remainingQuantity: 500
+      remainingQuantity: 500,
+      orderQuantity: 1000
     },
     {
       key: "MIWTEST100|00|2",
@@ -320,7 +339,8 @@ test("mergeWeeklyAccumulated overwrites changed keys, skips identical rows, adds
       groupNumber: 2,
       incomingDate: "2026-05-27",
       incomingQuantity: 300,
-      remainingQuantity: 500
+      remainingQuantity: 500,
+      orderQuantity: 1000
     },
     {
       key: "MIWTEST100|00|3",
@@ -330,7 +350,8 @@ test("mergeWeeklyAccumulated overwrites changed keys, skips identical rows, adds
       groupNumber: 3,
       incomingDate: "2026-06-03",
       incomingQuantity: 50,
-      remainingQuantity: 500
+      remainingQuantity: 500,
+      orderQuantity: 1000
     }
   ];
 
@@ -446,13 +467,14 @@ test("mergeWeeklyAccumulated drops accumulated rows that are not real style code
   assert.equal(summary.preserved, 0);
 });
 
-test("validateWeeklyItems marks mismatch, overage, missing remaining quantity, and ok groups", () => {
+test("validateWeeklyItems compares incoming schedules plus remaining quantity against order quantity", () => {
   const items = [
-    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", remainingQuantity: 500, incomingQuantity: 200 },
-    { key: "A|00|2", groupKey: "A|00", style: "A", round: "00", remainingQuantity: 500, incomingQuantity: 200 },
-    { key: "B|00|1", groupKey: "B|00", style: "B", round: "00", remainingQuantity: 300, incomingQuantity: 350 },
-    { key: "C|00|1", groupKey: "C|00", style: "C", round: "00", remainingQuantity: null, incomingQuantity: 10 },
-    { key: "D|00|1", groupKey: "D|00", style: "D", round: "00", remainingQuantity: 100, incomingQuantity: 100 }
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 200 },
+    { key: "A|00|2", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 200 },
+    { key: "B|00|1", groupKey: "B|00", style: "B", round: "00", orderQuantity: 600, remainingQuantity: 300, incomingQuantity: 350 },
+    { key: "C|00|1", groupKey: "C|00", style: "C", round: "00", orderQuantity: 100, remainingQuantity: null, incomingQuantity: 10 },
+    { key: "D|00|1", groupKey: "D|00", style: "D", round: "00", orderQuantity: 200, remainingQuantity: 100, incomingQuantity: 100 },
+    { key: "E|00|1", groupKey: "E|00", style: "E", round: "00", orderQuantity: null, remainingQuantity: 100, incomingQuantity: 100 }
   ];
 
   const result = validateWeeklyItems(items);
@@ -461,13 +483,15 @@ test("validateWeeklyItems marks mismatch, overage, missing remaining quantity, a
   assert.equal(result.groups.find((group) => group.groupKey === "B|00").validationStatus, "over");
   assert.equal(result.groups.find((group) => group.groupKey === "C|00").validationStatus, "remaining_missing");
   assert.equal(result.groups.find((group) => group.groupKey === "D|00").validationStatus, "ok");
-  assert.equal(result.needsCheckCount, 3);
+  assert.equal(result.groups.find((group) => group.groupKey === "D|00").accumulatedQuantity, 200);
+  assert.equal(result.groups.find((group) => group.groupKey === "E|00").validationStatus, "order_missing");
+  assert.equal(result.needsCheckCount, 4);
 });
 
 test("applyWeeklyItemEdits updates quantities and excludes rows before validation", () => {
   const items = [
-    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", remainingQuantity: 500, incomingQuantity: 200 },
-    { key: "A|00|2", groupKey: "A|00", style: "A", round: "00", remainingQuantity: 500, incomingQuantity: 200 }
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 200 },
+    { key: "A|00|2", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 200 }
   ];
 
   const edited = applyWeeklyItemEdits(items, [
@@ -488,7 +512,7 @@ test("applyWeeklyItemEdits updates quantities and excludes rows before validatio
 
 test("applyWeeklyItemEdits saves editable shipping fields", () => {
   const items = [
-    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", remainingQuantity: 500, incomingDate: "2026-06-01", incomingQuantity: 500 }
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingDate: "2026-06-01", incomingQuantity: 500 }
   ];
 
   const edited = applyWeeklyItemEdits(items, [
@@ -503,8 +527,8 @@ test("applyWeeklyItemEdits saves editable shipping fields", () => {
 
 test("applyWeeklyItemEdits treats remaining quantity as a style-round group value", () => {
   const items = [
-    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", remainingQuantity: 3500, incomingQuantity: 1500 },
-    { key: "A|00|2", groupKey: "A|00", style: "A", round: "00", remainingQuantity: 3500, incomingQuantity: 2000 }
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 7000, remainingQuantity: 3500, incomingQuantity: 1500 },
+    { key: "A|00|2", groupKey: "A|00", style: "A", round: "00", orderQuantity: 7000, remainingQuantity: 3500, incomingQuantity: 2000 }
   ];
 
   const edited = applyWeeklyItemEdits(items, [
@@ -567,6 +591,7 @@ test("weekly csv rows preserve shipping confirmed status, editable shipping fiel
       groupNumber: 1,
       incomingType: "period",
       incomingPeriod: "2주뒤",
+      orderQuantity: 700,
       remainingQuantity: 500,
       incomingDate: "",
       incomingQuantity: 200,
@@ -584,7 +609,9 @@ test("weekly csv rows preserve shipping confirmed status, editable shipping fiel
   assert.equal(rows[0].includes("shippingConfirmed"), true);
   assert.equal(rows[0].includes("shippingDate"), true);
   assert.equal(rows[0].includes("incomingType"), true);
+  assert.equal(rows[0].includes("orderQuantity"), true);
   assert.equal(parsed[0].shippingConfirmed, true);
+  assert.equal(parsed[0].orderQuantity, 700);
   assert.equal(parsed[0].incomingType, "period");
   assert.equal(parsed[0].incomingPeriod, "2주뒤");
   assert.equal(parsed[0].shippingDate, "2026-06-02");

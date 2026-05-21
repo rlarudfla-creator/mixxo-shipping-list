@@ -59,7 +59,8 @@ export async function readWeeklyAccumulation(options = {}) {
       ...item,
       validationStatus: group?.validationStatus || "ok",
       validationLabel: group?.validationLabel || "정상",
-      plannedQuantity: group?.plannedQuantity ?? null
+      plannedQuantity: group?.plannedQuantity ?? null,
+      accumulatedQuantity: group?.accumulatedQuantity ?? null
     };
   });
   return {
@@ -93,7 +94,8 @@ export async function editWeeklyAccumulation(edits = [], options = {}) {
       ...item,
       validationStatus: group?.validationStatus || "ok",
       validationLabel: group?.validationLabel || "정상",
-      plannedQuantity: group?.plannedQuantity ?? null
+      plannedQuantity: group?.plannedQuantity ?? null,
+      accumulatedQuantity: group?.accumulatedQuantity ?? null
     };
   });
   await store.saveItems(itemsWithValidation);

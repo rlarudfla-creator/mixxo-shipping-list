@@ -5,6 +5,7 @@ const WEEKLY_COLUMNS = {
   style: colToIndex("C"),
   round: colToIndex("D"),
   plannerName: colToIndex("CA"),
+  orderQuantity: colToIndex("DH"),
   remainingQuantity: colToIndex("DJ"),
   incomingStatus: colToIndex("DL"),
   scheduleStart: colToIndex("DQ"),
@@ -15,7 +16,8 @@ const WEEKLY_COLUMNS = {
 const VALIDATION_LABELS = {
   ok: "정상",
   needs_check: "데이터 확인 필요",
-  over: "잔량 초과",
+  over: "발주량 초과",
+  order_missing: "발주량 확인 필요",
   remaining_missing: "잔량 확인 필요"
 };
 
@@ -27,6 +29,7 @@ const COMPARISON_FIELDS = [
   "sourceRow",
   "plannerName",
   "incomingStatus",
+  "orderQuantity",
   "remainingQuantity",
   "incomingType",
   "incomingPeriod",
@@ -80,6 +83,7 @@ export function parseWeeklyBoardRows(rows, options = {}) {
       sourceRow: rowIndex + 1,
       plannerName: cleanCell(row[WEEKLY_COLUMNS.plannerName]),
       incomingStatus: cleanCell(row[WEEKLY_COLUMNS.incomingStatus]),
+      orderQuantity: parseQuantity(row[WEEKLY_COLUMNS.orderQuantity]),
       remainingQuantity: parseQuantity(row[WEEKLY_COLUMNS.remainingQuantity])
     };
 
@@ -317,8 +321,10 @@ export function validateWeeklyItems(items = []) {
       round: item.round,
       plannerName: item.plannerName || "",
       incomingStatus: item.incomingStatus || "",
+      orderQuantity: null,
       remainingQuantity: null,
       plannedQuantity: 0,
+      accumulatedQuantity: null,
       itemCount: 0,
       activeItemCount: 0,
       validationStatus: "ok",
@@ -329,6 +335,9 @@ export function validateWeeklyItems(items = []) {
     if (isQuantity(item.remainingQuantity) && !isQuantity(group.remainingQuantity)) {
       group.remainingQuantity = Number(item.remainingQuantity);
     }
+    if (isQuantity(item.orderQuantity) && !isQuantity(group.orderQuantity)) {
+      group.orderQuantity = Number(item.orderQuantity);
+    }
     if (!item.excluded && !item.shippingConfirmed) {
       group.activeItemCount += 1;
       group.plannedQuantity += isQuantity(item.incomingQuantity) ? Number(item.incomingQuantity) : 0;
@@ -338,16 +347,22 @@ export function validateWeeklyItems(items = []) {
 
   const groups = [...groupsByKey.values()].map((group) => {
     let validationStatus = "ok";
+    const accumulatedQuantity = isQuantity(group.remainingQuantity)
+      ? group.plannedQuantity + Number(group.remainingQuantity)
+      : null;
     if (!isQuantity(group.remainingQuantity)) {
       validationStatus = "remaining_missing";
-    } else if (group.plannedQuantity > group.remainingQuantity) {
+    } else if (!isQuantity(group.orderQuantity)) {
+      validationStatus = "order_missing";
+    } else if (accumulatedQuantity > group.orderQuantity) {
       validationStatus = "over";
-    } else if (group.plannedQuantity !== group.remainingQuantity) {
+    } else if (accumulatedQuantity !== group.orderQuantity) {
       validationStatus = "needs_check";
     }
 
     return {
       ...group,
+      accumulatedQuantity,
       validationStatus,
       validationLabel: VALIDATION_LABELS[validationStatus]
     };
@@ -370,6 +385,7 @@ export function weeklyItemsToCsvRows(items = []) {
       "sourceRow",
       "plannerName",
       "incomingStatus",
+      "orderQuantity",
       "remainingQuantity",
       "incomingType",
       "incomingPeriod",
@@ -395,6 +411,7 @@ export function weeklyItemsToCsvRows(items = []) {
       item.sourceRow ?? "",
       item.plannerName || "",
       item.incomingStatus || "",
+      item.orderQuantity ?? "",
       item.remainingQuantity ?? "",
       item.incomingType || "",
       item.incomingPeriod || "",
@@ -433,6 +450,7 @@ export function csvRowsToWeeklyItems(rows = []) {
         sourceRow: parseQuantity(record.sourceRow),
         plannerName: cleanCell(record.plannerName),
         incomingStatus: cleanCell(record.incomingStatus),
+        orderQuantity: parseQuantity(record.orderQuantity),
         remainingQuantity: parseQuantity(record.remainingQuantity),
         incomingType: cleanCell(record.incomingType) || (cleanCell(record.incomingPeriod) ? "period" : "dated"),
         incomingPeriod: cleanCell(record.incomingPeriod),
@@ -461,7 +479,8 @@ function attachValidation(items, validation) {
       ...item,
       validationStatus: group?.validationStatus || "ok",
       validationLabel: group?.validationLabel || VALIDATION_LABELS.ok,
-      plannedQuantity: group?.plannedQuantity ?? null
+      plannedQuantity: group?.plannedQuantity ?? null,
+      accumulatedQuantity: group?.accumulatedQuantity ?? null
     };
   });
 }

@@ -122,7 +122,7 @@ const WEEKLY_TABLE_COLUMNS = [
     placeholder: "날짜 선택"
   },
   { header: "입고예정수량" },
-  { header: "총잔량" },
+  { header: "잔량" },
   { header: "누적합" },
   { header: "입고여부" },
   {
@@ -938,7 +938,7 @@ function renderWeeklyRow(row) {
   } else {
     appendCell(tr, "동일", "muted-cell");
   }
-  appendCell(tr, formatNumber(row.plannedQuantity || 0), "number-cell");
+  appendCell(tr, formatNumber(row.accumulatedQuantity ?? row.plannedQuantity ?? 0), "number-cell");
   appendCell(tr, row.incomingStatus || "");
   appendInputCell(tr, "date", "shippingDate", row.shippingDate || "");
   appendInputCell(tr, "number", "shippingQuantity", row.shippingQuantity ?? "");
