@@ -79,6 +79,7 @@ let weeklyColumnFilterInputs = [];
 let weeklyTableFilterState = {
   validationLabel: "",
   style: "",
+  itemCode: "",
   plannerName: "",
   incomingSchedule: "",
   shippingDate: "",
@@ -104,6 +105,13 @@ const WEEKLY_TABLE_COLUMNS = [
     filterType: "search",
     filterId: "weekly-style-search",
     placeholder: "스타일 검색"
+  },
+  {
+    header: "아이템",
+    sortKey: "itemCode",
+    filterKey: "itemCode",
+    filterType: "select",
+    filterId: "weekly-filter-item"
   },
   { header: "차수" },
   {
@@ -573,6 +581,9 @@ function getWeeklyFilterValue(row, key) {
   if (key === "validationLabel") {
     return row.validationLabel || "정상";
   }
+  if (key === "itemCode") {
+    return getWeeklyItemCode(row);
+  }
   if (key === "incomingSchedule") {
     return row.incomingDate || row.incomingPeriod || "";
   }
@@ -583,6 +594,15 @@ function getWeeklyFilterValue(row, key) {
     return row.shippingQuantity ?? "";
   }
   return row[key] ?? "";
+}
+
+function getWeeklyItemCode(row = {}) {
+  const explicit = String(row.itemCode || "").trim().toUpperCase();
+  if (explicit) {
+    return explicit;
+  }
+  const style = String(row.style || "").trim().toUpperCase();
+  return style.length >= 5 ? style.slice(3, 5) : "";
 }
 
 function compareWeeklySortValues(left, right, key) {
@@ -826,6 +846,7 @@ function bindWeeklyColumnFilterInputs() {
 
 function populateWeeklyColumnFilterOptions(rows = []) {
   populateWeeklySelectFilter("validationLabel", rows);
+  populateWeeklySelectFilter("itemCode", rows);
   populateWeeklySelectFilter("plannerName", rows);
   populateWeeklySelectFilter("shippingStores", rows);
   populateWeeklySelectFilter("statusLabel", rows);
@@ -889,7 +910,7 @@ function renderWeeklyAccumulation(data) {
     const tr = document.createElement("tr");
     tr.className = "empty-row";
     const td = document.createElement("td");
-    td.colSpan = 15;
+    td.colSpan = 16;
     td.textContent = "표시할 출고리스트 작성 데이터가 없습니다.";
     tr.append(td);
     weeklyTableBody.append(tr);
@@ -925,6 +946,7 @@ function renderWeeklyRow(row) {
 
   appendCell(tr, row.validationLabel || "정상", "validation-cell");
   appendCell(tr, row.style || "");
+  appendCell(tr, getWeeklyItemCode(row));
   appendCell(tr, row.round || "");
   appendCell(tr, row.plannerName || "");
   if (row.incomingType === "period") {
@@ -1517,7 +1539,8 @@ function getVisibleRows() {
     if (itemSearch && !String(row.itemSearchText || "").includes(itemSearch)) {
       return false;
     }
-    if (styleSearch && !String(row.styleSearchText || normalizeSearch(row.style)).includes(styleSearch)) {
+    const rowStyleSearchText = normalizeSearch(`${row.styleSearchText || ""} ${row.style || ""} ${row.styleName || ""}`);
+    if (styleSearch && !rowStyleSearchText.includes(styleSearch)) {
       return false;
     }
     return true;

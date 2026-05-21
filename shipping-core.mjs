@@ -379,7 +379,7 @@ function recordToOutputRow(record, itemClassifications, roundDetailsByProduct, y
     itemCategory: itemInfo.category,
     itemDisplay: itemInfo.label,
     itemSearchText: normalizeSearch(`${itemInfo.code} ${itemInfo.major} ${itemInfo.category} ${itemInfo.label}`),
-    styleSearchText: normalizeSearch(`${style} ${styleKey} ${reorderStyleKey} ${productKey}`),
+    styleSearchText: buildStyleSearchText({ style, styleKey, reorderStyleKey, productKey, styleName: row.styleName }),
     quantityNumber: parseQuantity(row.quantity),
     roundDetails: roundDetailsByProduct.get(productKey) || []
   };
@@ -1042,7 +1042,17 @@ function cleanCell(value) {
 }
 
 function normalizeSearch(value) {
-  return cleanCell(value).toUpperCase().replace(/\s+/g, " ");
+  return cleanCell(value).toUpperCase().replace(/\s+/g, "");
+}
+
+export function buildStyleSearchText({
+  style = "",
+  styleKey = "",
+  reorderStyleKey = "",
+  productKey = "",
+  styleName = ""
+} = {}) {
+  return normalizeSearch(`${style} ${styleKey} ${reorderStyleKey} ${productKey} ${styleName}`);
 }
 
 function formatFileDateSafe(date) {

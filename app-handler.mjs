@@ -631,8 +631,8 @@ function renderPage({ authenticated, loginError }) {
           <input id="item-search" type="search" placeholder="코드/대분류 검색" autocomplete="off">
         </div>
         <div class="field">
-          <label for="style-search">스타일 코드 검색</label>
-          <input id="style-search" type="search" placeholder="스타일 코드 검색" autocomplete="off">
+          <label for="style-search">스타일/스타일명 검색</label>
+          <input id="style-search" type="search" placeholder="스타일 또는 스타일명 검색" autocomplete="off">
         </div>
         <button id="clear-filters" class="secondary-button" type="button">필터 초기화</button>
       </div>
