@@ -32,8 +32,24 @@
       "destination": "/api/index?__path=/api/preview"
     },
     {
+      "source": "/api/weekly-accumulation",
+      "destination": "/api/index?__path=/api/weekly-accumulation"
+    },
+    {
+      "source": "/api/weekly-accumulation/sync",
+      "destination": "/api/index?__path=/api/weekly-accumulation/sync"
+    },
+    {
+      "source": "/api/low-shipping-rate",
+      "destination": "/api/index?__path=/api/low-shipping-rate"
+    },
+    {
       "source": "/download",
       "destination": "/api/index?__path=/download"
+    },
+    {
+      "source": "/download-low-shipping-rate",
+      "destination": "/api/index?__path=/download-low-shipping-rate"
     }
   ]
 }
