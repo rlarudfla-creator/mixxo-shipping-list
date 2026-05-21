@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
-import { filterWeeklyItems, syncWeeklyAccumulation } from "../weekly-store.mjs";
+import { filterWeeklyItems, resolveWeeklyLocalStorePath, syncWeeklyAccumulation } from "../weekly-store.mjs";
 
 function colToIndex(letter) {
   return [...letter.toUpperCase()].reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0) - 1;
@@ -108,5 +110,12 @@ test("filterWeeklyItems narrows data by date range, planner, and issue-only flag
       endDate: "2026-06-08"
     }).map((item) => item.key),
     ["C|00|1"]
+  );
+});
+
+test("resolveWeeklyLocalStorePath uses writable temporary storage on Vercel", () => {
+  assert.equal(
+    resolveWeeklyLocalStorePath({ VERCEL: "1" }, "/var/task"),
+    join(tmpdir(), "mixxo-shipping-list", "weekly-accumulation.json")
   );
 });

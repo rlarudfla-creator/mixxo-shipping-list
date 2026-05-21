@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { SHEET_ID } from "./shipping-core.mjs";
@@ -13,7 +14,8 @@ import {
   withDefaultShippingFields
 } from "./weekly-accumulation.mjs";
 
-const LOCAL_STORE_PATH = join(process.cwd(), ".local-data", "weekly-accumulation.json");
+const LOCAL_STORE_DIR = "mixxo-shipping-list";
+const LOCAL_STORE_FILE = "weekly-accumulation.json";
 
 export async function syncWeeklyAccumulation(deps, options = {}) {
   const existingItems = await deps.loadItems();
@@ -107,7 +109,7 @@ export function createWeeklyStore(options = {}) {
   const scriptUrl = options.scriptUrl || process.env.WEEKLY_ACCUMULATION_SCRIPT_URL;
   const scriptSecret = options.scriptSecret || process.env.WEEKLY_ACCUMULATION_SCRIPT_SECRET || "";
   const fetchImpl = options.fetchImpl || fetch;
-  const localPath = options.localPath || LOCAL_STORE_PATH;
+  const localPath = options.localPath || resolveWeeklyLocalStorePath(options.env || process.env, options.cwd || process.cwd());
 
   if (scriptUrl) {
     return {
@@ -131,6 +133,17 @@ export function createWeeklyStore(options = {}) {
     loadItems: () => loadLocalItems(localPath),
     saveItems: (items) => saveLocalItems(localPath, items)
   };
+}
+
+export function resolveWeeklyLocalStorePath(env = process.env, cwd = process.cwd()) {
+  if (isServerlessRuntime(env)) {
+    return join(tmpdir(), LOCAL_STORE_DIR, LOCAL_STORE_FILE);
+  }
+  return join(cwd, ".local-data", LOCAL_STORE_FILE);
+}
+
+function isServerlessRuntime(env = {}) {
+  return Boolean(env.VERCEL || env.AWS_LAMBDA_FUNCTION_NAME || env.LAMBDA_TASK_ROOT);
 }
 
 export async function fetchWeeklyBoardRows(options = {}) {
