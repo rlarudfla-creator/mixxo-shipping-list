@@ -501,6 +501,23 @@ test("applyWeeklyItemEdits saves editable shipping fields", () => {
   assert.equal(edited[0].updatedAt, "2026-05-21T02:00:00.000Z");
 });
 
+test("applyWeeklyItemEdits treats remaining quantity as a style-round group value", () => {
+  const items = [
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", remainingQuantity: 3500, incomingQuantity: 1500 },
+    { key: "A|00|2", groupKey: "A|00", style: "A", round: "00", remainingQuantity: 3500, incomingQuantity: 2000 }
+  ];
+
+  const edited = applyWeeklyItemEdits(items, [
+    { key: "A|00|2", remainingQuantity: "3400" }
+  ], { now: "2026-05-21T03:00:00.000Z" });
+
+  assert.deepEqual(edited.map((item) => item.remainingQuantity), [3400, 3400]);
+  assert.deepEqual(edited.map((item) => item.updatedAt), [
+    "2026-05-21T03:00:00.000Z",
+    "2026-05-21T03:00:00.000Z"
+  ]);
+});
+
 test("applyWeeklyItemEdits marks selected rows as shipping confirmed", () => {
   const items = [
     { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", remainingQuantity: 500, incomingQuantity: 200 },

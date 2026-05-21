@@ -122,7 +122,7 @@ const WEEKLY_TABLE_COLUMNS = [
     placeholder: "날짜 선택"
   },
   { header: "입고예정수량" },
-  { header: "잔량" },
+  { header: "총잔량" },
   { header: "누적합" },
   { header: "입고여부" },
   {
@@ -463,15 +463,18 @@ async function saveWeeklyEdits() {
 }
 
 function collectWeeklyEdits() {
-  return [...weeklyTableBody.querySelectorAll("tr[data-key]")].map(collectWeeklyRowEdit);
+  const rows = [...weeklyTableBody.querySelectorAll("tr[data-key]")];
+  const remainingValues = getWeeklyGroupRemainingValues(rows);
+  return rows.map((row) => collectWeeklyRowEdit(row, remainingValues));
 }
 
-function collectWeeklyRowEdit(row) {
+function collectWeeklyRowEdit(row, remainingValues = getWeeklyGroupRemainingValues()) {
+  const groupKey = row.dataset.groupKey || "";
   return {
     key: row.dataset.key,
     incomingDate: row.querySelector("[data-field='incomingDate']")?.value || "",
     incomingQuantity: row.querySelector("[data-field='incomingQuantity']")?.value || "",
-    remainingQuantity: row.querySelector("[data-field='remainingQuantity']")?.value || "",
+    remainingQuantity: remainingValues.get(groupKey) ?? row.dataset.remainingQuantity ?? "",
     shippingDate: row.querySelector("[data-field='shippingDate']")?.value || "",
     shippingQuantity: row.querySelector("[data-field='shippingQuantity']")?.value || "",
     shippingStores: row.querySelector("[data-field='shippingStores']")?.value || "",
@@ -479,6 +482,21 @@ function collectWeeklyRowEdit(row) {
     excluded: Boolean(row.querySelector("[data-field='excluded']")?.checked),
     shippingConfirmed: row.dataset.shippingConfirmed === "true"
   };
+}
+
+function getWeeklyGroupRemainingValues(rows = [...weeklyTableBody.querySelectorAll("tr[data-key]")]) {
+  const values = new Map();
+  for (const row of rows) {
+    const groupKey = row.dataset.groupKey || "";
+    if (!groupKey || values.has(groupKey)) {
+      continue;
+    }
+    const input = row.querySelector("[data-field='remainingQuantity']");
+    if (input) {
+      values.set(groupKey, input.value || "");
+    }
+  }
+  return values;
 }
 
 function updateWeeklyTableFilter(key, value) {
@@ -593,8 +611,9 @@ async function confirmSelectedWeeklyRows() {
     weeklySyncSummary.className = "weekly-sync-summary warning";
     return;
   }
+  const remainingValues = getWeeklyGroupRemainingValues();
   const edits = rowsToConfirm.map((row) => ({
-    ...collectWeeklyRowEdit(row),
+    ...collectWeeklyRowEdit(row, remainingValues),
     excluded: true,
     shippingConfirmed: true
   }));
@@ -642,8 +661,9 @@ async function cancelSelectedWeeklyConfirmations() {
     return;
   }
 
+  const remainingValues = getWeeklyGroupRemainingValues();
   const edits = selectedRows.map((row) => ({
-    ...collectWeeklyRowEdit(row),
+    ...collectWeeklyRowEdit(row, remainingValues),
     excluded: false,
     shippingConfirmed: false
   }));
@@ -878,8 +898,12 @@ function renderWeeklyAccumulation(data) {
     return;
   }
 
+  const renderedGroups = new Set();
   for (const row of rows) {
-    weeklyTableBody.append(renderWeeklyRow(row));
+    const groupKey = row.groupKey || `${row.style || ""}|${row.round || ""}`;
+    const showRemainingQuantityInput = !renderedGroups.has(groupKey);
+    renderedGroups.add(groupKey);
+    weeklyTableBody.append(renderWeeklyRow({ ...row, showRemainingQuantityInput }));
   }
   updateWeeklyBulkControls();
   syncWeeklyScrollbars();
@@ -888,7 +912,9 @@ function renderWeeklyAccumulation(data) {
 function renderWeeklyRow(row) {
   const tr = document.createElement("tr");
   tr.dataset.key = row.key;
+  tr.dataset.groupKey = row.groupKey || `${row.style || ""}|${row.round || ""}`;
   tr.dataset.style = row.style || "";
+  tr.dataset.remainingQuantity = row.remainingQuantity ?? "";
   tr.dataset.shippingConfirmed = row.shippingConfirmed ? "true" : "false";
   tr.className = [
     "weekly-data-row",
@@ -907,7 +933,11 @@ function renderWeeklyRow(row) {
     appendInputCell(tr, "date", "incomingDate", row.incomingDate || "");
   }
   appendInputCell(tr, "number", "incomingQuantity", row.incomingQuantity ?? "");
-  appendInputCell(tr, "number", "remainingQuantity", row.remainingQuantity ?? "");
+  if (row.showRemainingQuantityInput) {
+    appendInputCell(tr, "number", "remainingQuantity", row.remainingQuantity ?? "");
+  } else {
+    appendCell(tr, "동일", "muted-cell");
+  }
   appendCell(tr, formatNumber(row.plannedQuantity || 0), "number-cell");
   appendCell(tr, row.incomingStatus || "");
   appendInputCell(tr, "date", "shippingDate", row.shippingDate || "");

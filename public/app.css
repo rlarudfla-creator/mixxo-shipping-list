@@ -721,6 +721,11 @@ h1 {
   font-weight: 900;
 }
 
+.muted-cell {
+  color: #6b7280;
+  font-weight: 700;
+}
+
 .period-cell {
   min-width: 110px;
   color: var(--warning);

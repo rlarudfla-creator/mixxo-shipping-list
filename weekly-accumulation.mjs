@@ -240,22 +240,42 @@ export function mergeWeeklyAccumulated(existingItems = [], snapshotItems = [], o
 export function applyWeeklyItemEdits(items = [], edits = [], options = {}) {
   const now = options.now || new Date().toISOString();
   const editsByKey = new Map(edits.map((edit) => [edit.key, edit]));
+  const itemsByKey = new Map(items.map((item) => [item.key, item]));
+  const remainingQuantityByGroup = new Map();
+
+  for (const edit of edits) {
+    if (!edit || !("remainingQuantity" in edit)) {
+      continue;
+    }
+    const item = itemsByKey.get(edit.key);
+    if (!item) {
+      continue;
+    }
+    remainingQuantityByGroup.set(item.groupKey || `${item.style}|${item.round}`, parseQuantity(edit.remainingQuantity));
+  }
 
   return items.map((item) => {
     const edit = editsByKey.get(item.key);
-    if (!edit) {
+    const groupKey = item.groupKey || `${item.style}|${item.round}`;
+    const hasRemainingQuantityEdit = remainingQuantityByGroup.has(groupKey);
+    if (!edit && !hasRemainingQuantityEdit) {
       return item;
     }
 
     const next = { ...item };
+    if (hasRemainingQuantityEdit) {
+      next.remainingQuantity = remainingQuantityByGroup.get(groupKey);
+      next.updatedAt = now;
+    }
+    if (!edit) {
+      return next;
+    }
+
     if ("incomingDate" in edit) {
       next.incomingDate = cleanCell(edit.incomingDate);
     }
     if ("incomingQuantity" in edit) {
       next.incomingQuantity = parseQuantity(edit.incomingQuantity);
-    }
-    if ("remainingQuantity" in edit) {
-      next.remainingQuantity = parseQuantity(edit.remainingQuantity);
     }
     if ("plannerName" in edit) {
       next.plannerName = cleanCell(edit.plannerName);
