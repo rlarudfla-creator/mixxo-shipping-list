@@ -5,6 +5,7 @@ export const SHEET_NAME = "출고가능리스트";
 export const ITEM_SHEET_NAME = "구분";
 export const BI_SHEET_NAME = "BI";
 export const CSV_URL = sheetCsvUrl(SHEET_NAME);
+export const CONFIRMED_SHIPPING_START_DATE = "2026-05-26";
 
 export const OUTPUT_COLUMNS = [
   { key: "shippingDate", header: "출고일자", source: "출고일자", width: 14 },
@@ -52,11 +53,12 @@ const SUMMARY_ROW_DEFS = [
 export async function buildShippingList(inputDate, inputEndDate = inputDate, options = {}) {
   const { startDate, endDate } = parseDateRange(inputDate, inputEndDate);
   const targetSheetDate = formatPeriodLabel(startDate, endDate);
-  const [weekHolidays, rangeHolidays, itemClassifications, receivingRates] = await Promise.all([
+  const [weekHolidays, rangeHolidays, itemClassifications, receivingRates, biStyleNames] = await Promise.all([
     loadKoreanHolidaysForWeek(startDate),
     loadKoreanHolidaysForRange(startDate, endDate),
     loadItemClassifications(),
-    loadStyleReceivingRates()
+    loadStyleReceivingRates(),
+    loadBiStyleNames()
   ]);
   const holidays = new Map([...weekHolidays.entries(), ...rangeHolidays.entries()]);
   const selectedDateStatus = isSameDate(startDate, endDate)
@@ -66,19 +68,32 @@ export async function buildShippingList(inputDate, inputEndDate = inputDate, opt
   const rows = parseCsv(csv);
   const records = toRecords(rows);
   const validRecords = records.filter(isValidShippingRecord);
-  const styleKeys = buildStyleKeySet(validRecords);
-  const roundDetailsByProduct = buildRoundDetailIndex(validRecords, startDate.getFullYear(), styleKeys, receivingRates);
-  const availableWeeks = buildAvailableWeeks(validRecords, startDate.getFullYear());
+  const confirmedRecords = weeklyItemsToShippingRecords(options.confirmedWeeklyItems || [], {
+    styleNames: options.styleNames || biStyleNames
+  });
+  const sourceRecords = mergeShippingSourceRecords(validRecords, confirmedRecords, {
+    year: startDate.getFullYear()
+  });
+  const weekOptionRecords = weeklyItemsToShippingRecords(options.confirmedWeeklyItems || [], {
+    styleNames: options.styleNames || biStyleNames,
+    includeUnconfirmed: true
+  });
+  const weekOptionSourceRecords = mergeShippingSourceRecords(validRecords, weekOptionRecords, {
+    year: startDate.getFullYear()
+  });
+  const styleKeys = buildStyleKeySet(sourceRecords);
+  const roundDetailsByProduct = buildRoundDetailIndex(sourceRecords, startDate.getFullYear(), styleKeys, receivingRates);
+  const availableWeeks = buildAvailableWeeks(weekOptionSourceRecords, startDate.getFullYear());
   const filtered = selectedDateStatus.closed
     ? []
-    : validRecords.filter((record) => isRecordInOpenDateRange(record, startDate, endDate, holidays));
+    : sourceRecords.filter((record) => isRecordInOpenDateRange(record, startDate, endDate, holidays));
   const uniqueRecords = dedupeByProduct(filtered, styleKeys);
   const periodRows = sortOutputRows(
     uniqueRecords.map((record) => recordToOutputRow(record, itemClassifications, roundDetailsByProduct, startDate.getFullYear(), styleKeys)),
     { sortKey: "shippingDate", sortDirection: "asc" }
   );
   const outputRows = sortOutputRows(applyRowFilters(periodRows, options), options);
-  const summary = buildSummary(validRecords, startDate, holidays, availableWeeks);
+  const summary = buildSummary(sourceRecords, startDate, holidays, availableWeeks);
 
   return {
     date: formatFileDate(startDate),
@@ -96,6 +111,64 @@ export async function buildShippingList(inputDate, inputEndDate = inputDate, opt
     filters: buildFilterMetadata(periodRows),
     summary
   };
+}
+
+export function weeklyItemsToShippingRecords(weeklyItems = [], options = {}) {
+  const styleNames = options.styleNames || new Map();
+  const includeUnconfirmed = Boolean(options.includeUnconfirmed);
+  return weeklyItems
+    .filter((item) => (includeUnconfirmed || item?.shippingConfirmed) && cleanCell(item.shippingDate))
+    .map((item) => {
+      const shippingDate = safeParseInputDate(item.shippingDate);
+      if (!shippingDate) {
+        return null;
+      }
+      const incomingDate = cleanCell(item.incomingDate) ? safeParseInputDate(item.incomingDate) : null;
+      const style = cleanCell(item.style).toUpperCase();
+      const quantity = parseQuantity(item.shippingQuantity);
+      const weekLabel = formatConfirmedShippingWeekLabel(shippingDate);
+      return {
+        __raw: ["", weekLabel],
+        "출고일자": formatSheetDate(shippingDate),
+        "입고일자": incomingDate ? formatSheetDate(incomingDate) : "",
+        "스타일": style,
+        "스타일명": getStyleName(styleNames, style),
+        "★차수 구분 기입 차수": cleanCell(item.round),
+        "출고수량\n(*50%)": quantity,
+        "출고매장": cleanCell(item.shippingStores),
+        "비고": cleanCell(item.note),
+        "아이템": extractItemCode(style),
+        "구분": ""
+      };
+    })
+    .filter(Boolean);
+}
+
+export function mergeShippingSourceRecords(legacyRecords = [], confirmedRecords = [], options = {}) {
+  const year = Number(options.year) || new Date().getFullYear();
+  const switchDate = options.switchDate || CONFIRMED_SHIPPING_START_DATE;
+  return [
+    ...legacyRecords.filter((record) => {
+      const dateKey = getRecordDateKey(record, year);
+      return dateKey && dateKey < switchDate;
+    }),
+    ...confirmedRecords.filter((record) => {
+      const dateKey = getRecordDateKey(record, year);
+      return dateKey && dateKey >= switchDate;
+    })
+  ].sort((left, right) =>
+    compareValues(getRecordDateKey(left, year), getRecordDateKey(right, year)) ||
+    compareValues(left["스타일"], right["스타일"]) ||
+    compareValues(left["★차수 구분 기입 차수"], right["★차수 구분 기입 차수"])
+  );
+}
+
+export function formatConfirmedShippingWeekLabel(value) {
+  const date = value instanceof Date ? new Date(value) : parseInputDate(value);
+  const weekStart = getShippingWeekTuesday(date);
+  const firstTuesday = getFirstTuesdayOfMonth(weekStart.getFullYear(), weekStart.getMonth());
+  const weekNumber = Math.floor((weekStart - firstTuesday) / (1000 * 60 * 60 * 24 * 7)) + 1;
+  return `${weekStart.getMonth() + 1}월 ${weekNumber}주차`;
 }
 
 export async function createShippingWorkbook(inputDate, inputEndDate = inputDate, options = {}) {
@@ -147,6 +220,14 @@ export function parseInputDate(value) {
   }
 
   return date;
+}
+
+function safeParseInputDate(value) {
+  try {
+    return parseInputDate(value);
+  } catch {
+    return null;
+  }
 }
 
 export function formatFileDate(date) {
@@ -304,41 +385,20 @@ function recordToOutputRow(record, itemClassifications, roundDetailsByProduct, y
   };
 }
 
-function buildAvailableWeeks(records, year) {
-  const weeks = new Map();
-  const todayWeekStart = getShippingWeekTuesday(new Date());
-  const minWeekStart = addDays(todayWeekStart, -28);
-  const maxWeekStart = addDays(todayWeekStart, 14);
-
-  for (const record of records) {
-    const label = cleanCell(record.__raw[1]);
-    const date = parseRecordDate(record["출고일자"], year);
-    if (!label || !date) {
-      continue;
-    }
-
-    const weekStart = getShippingWeekTuesday(date);
-    if (weekStart < minWeekStart || weekStart > maxWeekStart) {
-      continue;
-    }
-
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    const relativeWeek = Math.round((weekStart - todayWeekStart) / (1000 * 60 * 60 * 24 * 7));
-
-    if (!weeks.has(label)) {
-      weeks.set(label, {
-        label,
-        date: formatFileDate(weekStart),
-        startDate: formatFileDate(weekStart),
-        endDate: formatFileDate(weekEnd),
-        relativeWeek,
-        isFuture: relativeWeek > 0
-      });
-    }
-  }
-
-  return [...weeks.values()].sort((left, right) => left.startDate.localeCompare(right.startDate));
+export function buildAvailableWeeks(records, year, options = {}) {
+  const todayWeekStart = getShippingWeekTuesday(options.today || new Date());
+  return [-2, -1, 0, 1, 2, 3].map((relativeWeek) => {
+    const weekStart = addDays(todayWeekStart, relativeWeek * 7);
+    const weekEnd = addDays(weekStart, 6);
+    return {
+      label: formatConfirmedShippingWeekLabel(weekStart),
+      date: formatFileDate(weekStart),
+      startDate: formatFileDate(weekStart),
+      endDate: formatFileDate(weekEnd),
+      relativeWeek,
+      isFuture: relativeWeek > 0
+    };
+  });
 }
 
 function addDays(date, days) {
@@ -354,6 +414,10 @@ function parseRecordDate(value, year) {
   }
 
   return new Date(year, Number(match[1]) - 1, Number(match[2]));
+}
+
+function getRecordDateKey(record, year) {
+  return formatFileDateSafe(parseRecordDate(record?.["출고일자"], year));
 }
 
 async function loadItemClassifications() {
@@ -442,6 +506,42 @@ function toStyleReceivingRates(rows) {
   return result;
 }
 
+async function loadBiStyleNames() {
+  try {
+    const csv = await downloadCsv(BI_SHEET_NAME, ["스타일코드(Now)"]);
+    return toBiStyleNames(parseCsv(csv));
+  } catch {
+    return new Map();
+  }
+}
+
+function toBiStyleNames(rows) {
+  const headerRowIndex = rows.findIndex((row) =>
+    row.some((cell) => normalizeHeader(cell).includes(normalizeHeader("스타일코드(Now)")))
+  );
+  if (headerRowIndex === -1) {
+    return new Map();
+  }
+
+  const headers = rows[headerRowIndex].map(cleanCell);
+  const styleIndex = findHeaderIndexIncludes(headers, "스타일코드(Now)");
+  const nameIndex = headers.findIndex((header, index) =>
+    index !== styleIndex && normalizeHeader(header) === normalizeHeader("스타일코드(Now)")
+  );
+  const styleNameIndex = nameIndex === -1 ? styleIndex + 1 : nameIndex;
+  const result = new Map();
+
+  for (const row of rows.slice(headerRowIndex + 1)) {
+    const style = cleanCell(row[styleIndex]).toUpperCase();
+    if (!style) {
+      continue;
+    }
+    result.set(normalizeProductStyleCode(style), cleanCell(row[styleNameIndex]));
+  }
+
+  return result;
+}
+
 function findHeaderIndex(headers, name) {
   const target = normalizeHeader(name);
   return headers.findIndex((header) => normalizeHeader(header) === target);
@@ -474,6 +574,15 @@ function extractReorderStyleKey(styleName) {
 function normalizeProductStyleCode(style) {
   const normalized = cleanCell(style).toUpperCase().replace(/[^A-Z0-9]/g, "");
   return normalized.replace(/^(MIW|MIA)/, "");
+}
+
+function getStyleName(styleNames, style) {
+  const styleKey = normalizeProductStyleCode(style);
+  const entry = styleNames instanceof Map ? styleNames.get(styleKey) : styleNames?.[styleKey];
+  if (!entry) {
+    return "";
+  }
+  return typeof entry === "string" ? entry : cleanCell(entry.styleName);
 }
 
 function buildRoundDetailIndex(records, year, styleKeys, receivingRates = new Map()) {
@@ -657,7 +766,7 @@ function extractItemCode(style) {
   return normalized.length >= 5 ? normalized.slice(3, 5) : "";
 }
 
-function buildSummary(records, selectedDate, holidays, availableWeeks = []) {
+export function buildSummary(records, selectedDate, holidays, availableWeeks = []) {
   const weekStart = getShippingWeekTuesday(selectedDate);
   const dayDates = Object.fromEntries(
     SUMMARY_DAYS.map((day) => {
@@ -685,7 +794,13 @@ function buildSummary(records, selectedDate, holidays, availableWeeks = []) {
     ])
   );
   const weekRecords = Object.values(recordsByDay).flat();
-  const weekLabel = weekRecords.find((record) => cleanCell(record.__raw[1]))?.__raw[1] || "출고주차";
+  const weekStartKey = formatFileDate(weekStart);
+  const defaultWeekLabel = weekStartKey >= CONFIRMED_SHIPPING_START_DATE
+    ? formatConfirmedShippingWeekLabel(weekStart)
+    : "출고주차";
+  const weekLabel = availableWeeks.find((week) => week.startDate === weekStartKey)?.label
+    || weekRecords.find((record) => cleanCell(record.__raw[1]))?.__raw[1]
+    || defaultWeekLabel;
   const rows = SUMMARY_ROW_DEFS.map((rowDef) => {
     const matchingRecords = weekRecords.filter(rowDef.match);
     const daily = Object.fromEntries(
@@ -870,6 +985,14 @@ function getShippingWeekTuesday(date) {
   return result;
 }
 
+function getFirstTuesdayOfMonth(year, monthIndex) {
+  const date = new Date(year, monthIndex, 1);
+  while (date.getDay() !== 2) {
+    date.setDate(date.getDate() + 1);
+  }
+  return date;
+}
+
 function getItem(record) {
   return cleanCell(record["구분"]);
 }
@@ -1011,7 +1134,7 @@ function buildDetailSheet(workbookRows) {
   };
 }
 
-function createXlsxBuffer(sheets) {
+export function createXlsxBuffer(sheets) {
   const worksheetFiles = Object.fromEntries(
     sheets.map((sheet, index) => [`xl/worksheets/sheet${index + 1}.xml`, worksheetXml(sheet)])
   );

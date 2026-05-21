@@ -2,6 +2,20 @@ import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { buildShippingList, createShippingWorkbook, parseDateRange } from "./shipping-core.mjs";
+import {
+  buildLowShippingRateFilters,
+  buildLowShippingRateRows,
+  createLowShippingRateWorkbook,
+  fetchBiRows,
+  filterLowShippingRateRows,
+  toStyleShippingRates
+} from "./low-shipping-rate.mjs";
+import {
+  editWeeklyAccumulation,
+  filterWeeklyItems,
+  readWeeklyAccumulation,
+  updateWeeklyAccumulationFromBoard
+} from "./weekly-store.mjs";
 
 const DEFAULT_PASSWORD = "1234";
 const PASSWORD = process.env.SHIPPING_LIST_PASSWORD || DEFAULT_PASSWORD;
@@ -46,12 +60,36 @@ async function handleRequest(request, response) {
       return handlePreview(url, response);
     }
 
+    if (request.method === "GET" && url.pathname === "/api/weekly-accumulation") {
+      return handleWeeklyAccumulation(url, response);
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/weekly-accumulation/sync") {
+      return handleWeeklyAccumulationSync(request, url, response);
+    }
+
+    if (request.method === "PATCH" && url.pathname === "/api/weekly-accumulation") {
+      return handleWeeklyAccumulationEdit(request, response);
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/low-shipping-rate") {
+      return handleLowShippingRate(url, response);
+    }
+
     if (request.method === "GET" && url.pathname === "/download") {
       if (!isAuthenticated(request)) {
         response.writeHead(302, { Location: "/" });
         return response.end();
       }
       return handleDownload(url, response);
+    }
+
+    if (request.method === "GET" && url.pathname === "/download-low-shipping-rate") {
+      if (!isAuthenticated(request)) {
+        response.writeHead(302, { Location: "/" });
+        return response.end();
+      }
+      return handleLowShippingRateDownload(url, response);
     }
 
     sendText(response, 404, "페이지를 찾을 수 없습니다.");
@@ -118,7 +156,10 @@ async function handleLogin(request, response) {
 async function handlePreview(url, response) {
   try {
     const { startDate, endDate } = readDateRangeParam(url);
-    const result = await buildShippingList(startDate, endDate);
+    const weekly = await readWeeklyAccumulation();
+    const result = await buildShippingList(startDate, endDate, {
+      confirmedWeeklyItems: weekly.items
+    });
     sendJson(response, 200, {
       date: result.date,
       targetSheetDate: result.targetSheetDate,
@@ -141,7 +182,11 @@ async function handleDownload(url, response) {
   let result;
   try {
     const { startDate, endDate } = readDateRangeParam(url);
-    result = await createShippingWorkbook(startDate, endDate, readListOptions(url));
+    const weekly = await readWeeklyAccumulation();
+    result = await createShippingWorkbook(startDate, endDate, {
+      ...readListOptions(url),
+      confirmedWeeklyItems: weekly.items
+    });
   } catch (error) {
     return sendText(response, 400, error.message);
   }
@@ -161,6 +206,103 @@ async function handleDownload(url, response) {
     "Cache-Control": "no-store"
   });
   response.end(result.buffer);
+}
+
+async function handleWeeklyAccumulation(url, response) {
+  try {
+    const result = await readWeeklyAccumulation();
+    const filters = readWeeklyFilters(url);
+    const rows = filterWeeklyItems(result.items, filters);
+    sendJson(response, 200, {
+      rows,
+      totalCount: result.items.length,
+      visibleCount: rows.length,
+      needsCheckCount: result.needsCheckCount,
+      groups: result.groups,
+      filters: result.filters
+    });
+  } catch (error) {
+    sendJson(response, 400, { error: error.message });
+  }
+}
+
+async function handleWeeklyAccumulationSync(request, url, response) {
+  try {
+    const body = await readJsonBody(request);
+    const startDate = body.startDate || url.searchParams.get("startDate") || "";
+    const referenceYear = startDate ? parseInputYear(startDate) : new Date().getFullYear();
+    const result = await updateWeeklyAccumulationFromBoard({ referenceYear });
+    sendJson(response, 200, {
+      summary: result.summary,
+      rows: result.items,
+      groups: result.groups
+    });
+  } catch (error) {
+    sendJson(response, 400, { error: error.message });
+  }
+}
+
+async function handleWeeklyAccumulationEdit(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const result = await editWeeklyAccumulation(Array.isArray(body.edits) ? body.edits : []);
+    sendJson(response, 200, {
+      rows: result.items,
+      groups: result.groups,
+      needsCheckCount: result.needsCheckCount,
+      filters: result.filters
+    });
+  } catch (error) {
+    sendJson(response, 400, { error: error.message });
+  }
+}
+
+async function handleLowShippingRate(url, response) {
+  try {
+    const result = await buildLowShippingRateResult(url);
+    sendJson(response, 200, result);
+  } catch (error) {
+    sendJson(response, 400, { error: error.message });
+  }
+}
+
+async function handleLowShippingRateDownload(url, response) {
+  let result;
+  try {
+    result = await buildLowShippingRateResult(url);
+  } catch (error) {
+    return sendText(response, 400, error.message);
+  }
+
+  const workbook = createLowShippingRateWorkbook(result.rows);
+  const encodedName = encodeURIComponent(workbook.fileName);
+  response.writeHead(200, {
+    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "Content-Length": workbook.buffer.length,
+    "Content-Disposition": `attachment; filename="low-shipping-rate.xlsx"; filename*=UTF-8''${encodedName}`,
+    "Cache-Control": "no-store"
+  });
+  response.end(workbook.buffer);
+}
+
+async function buildLowShippingRateResult(url) {
+  const [weekly, biRows] = await Promise.all([
+    readWeeklyAccumulation(),
+    fetchBiRows()
+  ]);
+  const filters = readLowShippingRateFilters(url);
+  const weeklyItems = filterWeeklyItems(weekly.items, {
+    startDate: filters.startDate,
+    endDate: filters.endDate
+  });
+  const allRows = buildLowShippingRateRows(weeklyItems, toStyleShippingRates(biRows));
+  const rows = filterLowShippingRateRows(allRows, filters);
+  return {
+    rows,
+    totalCount: allRows.length,
+    visibleCount: rows.length,
+    filters: buildLowShippingRateFilters(allRows)
+  };
 }
 
 function readDateRangeParam(url) {
@@ -188,6 +330,29 @@ function readListOptions(url) {
     sortKey,
     sortDirection
   };
+}
+
+function readWeeklyFilters(url) {
+  return {
+    startDate: url.searchParams.get("startDate") || "",
+    endDate: url.searchParams.get("endDate") || "",
+    plannerName: url.searchParams.get("plannerName") || "",
+    issueOnly: url.searchParams.get("issueOnly") === "1"
+  };
+}
+
+function readLowShippingRateFilters(url) {
+  return {
+    startDate: url.searchParams.get("startDate") || "",
+    endDate: url.searchParams.get("endDate") || "",
+    plannerName: url.searchParams.get("plannerName") || "",
+    styleSearch: url.searchParams.get("styleSearch") || ""
+  };
+}
+
+function parseInputYear(value) {
+  const match = String(value).match(/^(\d{4})-/);
+  return match ? Number(match[1]) : new Date().getFullYear();
 }
 
 function createSession() {
@@ -263,13 +428,21 @@ async function readBody(request) {
 
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 1024 * 16) {
+    if (size > 1024 * 1024) {
       throw new Error("요청이 너무 큽니다.");
     }
     chunks.push(chunk);
   }
 
   return Buffer.concat(chunks).toString("utf8");
+}
+
+async function readJsonBody(request) {
+  const body = await readBody(request);
+  if (!body.trim()) {
+    return {};
+  }
+  return JSON.parse(body);
 }
 
 async function serveStatic(response, filePath) {
@@ -384,6 +557,15 @@ function renderPage({ authenticated, loginError }) {
   </header>
 
   <main class="app-shell">
+    <nav class="view-tabs" aria-label="페이지 보기">
+      <button class="view-tab active" type="button" data-view="summary">요약</button>
+      <button class="view-tab" type="button" data-view="detail">상세 리스트</button>
+      <button class="view-tab" type="button" data-view="weekly">출고리스트 작성</button>
+      <button class="view-tab" type="button" data-view="low-rate">낮은 출고율</button>
+    </nav>
+
+    <div id="week-buttons" class="week-buttons global-week-buttons" aria-label="주차 선택"></div>
+
     <section class="toolbar" aria-label="출고리스트 생성">
       <div class="field">
         <label for="start-date">시작일</label>
@@ -399,11 +581,6 @@ function renderPage({ authenticated, loginError }) {
 
     <section id="status" class="status" role="status" aria-live="polite"></section>
 
-    <nav class="view-tabs" aria-label="페이지 보기">
-      <button class="view-tab active" type="button" data-view="summary">요약</button>
-      <button class="view-tab" type="button" data-view="detail">상세 리스트</button>
-    </nav>
-
     <section id="summary-view" class="view-panel" aria-label="출고 리스트 요약">
       <div class="weekly-summary">
         <div class="section-title-row">
@@ -413,7 +590,6 @@ function renderPage({ authenticated, loginError }) {
           </div>
           <div id="capacity-alert" class="capacity-alert" hidden></div>
         </div>
-        <div id="week-buttons" class="week-buttons" aria-label="주차 선택"></div>
         <div class="summary-table-wrap">
           <table class="summary-table">
             <thead id="weekly-summary-head"></thead>
@@ -466,6 +642,74 @@ function renderPage({ authenticated, loginError }) {
             <tr id="table-head"></tr>
           </thead>
           <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="weekly-view" class="weekly-section view-panel" aria-label="출고리스트 작성" hidden>
+      <div class="section-title-row">
+        <div>
+          <h2>출고리스트 작성</h2>
+          <p class="section-caption">주간납기판을 새로 덮어쓴 뒤 업데이트를 반영하고, 출고일자/수량/매장을 확인한 뒤 확정하면 요약과 상세 리스트에 반영됩니다.</p>
+        </div>
+        <div id="weekly-count" class="detail-count"></div>
+      </div>
+      <div class="weekly-actions">
+        <button id="weekly-sync" type="button">주간납기판 업데이트 반영</button>
+        <button id="weekly-refresh" class="secondary-button" type="button">작성 데이터 새로고침</button>
+        <button id="weekly-save-edits" class="secondary-button" type="button">수정 저장</button>
+        <div class="field weekly-selection-tool">
+          <label for="weekly-shipping-date-select">출고일자별 선택</label>
+          <select id="weekly-shipping-date-select">
+            <option value="">날짜 선택</option>
+          </select>
+        </div>
+      </div>
+      <div id="weekly-sync-summary" class="weekly-sync-summary"></div>
+      <div id="weekly-scroll-top" class="weekly-scroll-top" aria-hidden="true">
+        <div id="weekly-scroll-top-inner"></div>
+      </div>
+      <div id="weekly-table-wrap" class="table-wrap weekly-table-wrap">
+        <table class="weekly-table">
+          <thead>
+            <tr id="weekly-table-head"></tr>
+          </thead>
+          <tbody id="weekly-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="low-rate-view" class="low-rate-section view-panel" aria-label="낮은 출고율 확인" hidden>
+      <div class="section-title-row">
+        <div>
+          <h2>낮은 출고율 확인</h2>
+          <p class="section-caption">BI 기준 입고대비 출고율이 40% 이하인 스타일만 모아 타 부서 확인용으로 보여줍니다.</p>
+        </div>
+        <div id="low-rate-count" class="detail-count"></div>
+      </div>
+      <div class="low-rate-actions">
+        <span id="low-rate-badge" class="low-rate-badge">낮은 출고율 확인필요</span>
+        <button id="low-rate-refresh" class="secondary-button" type="button">새로고침</button>
+        <button id="low-rate-download" type="button">낮은 출고율 엑셀 다운로드</button>
+      </div>
+      <div class="low-rate-filters" aria-label="낮은 출고율 필터">
+        <div class="field">
+          <label for="low-rate-planner-filter">기획자명</label>
+          <select id="low-rate-planner-filter">
+            <option value="">전체 기획자</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="low-rate-style-search">스타일 코드 검색</label>
+          <input id="low-rate-style-search" type="search" placeholder="스타일 코드 검색" autocomplete="off">
+        </div>
+      </div>
+      <div class="table-wrap low-rate-table-wrap">
+        <table class="low-rate-table">
+          <thead>
+            <tr id="low-rate-table-head"></tr>
+          </thead>
+          <tbody id="low-rate-table-body"></tbody>
         </table>
       </div>
     </section>

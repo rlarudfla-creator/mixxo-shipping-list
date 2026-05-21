@@ -24,6 +24,25 @@ const itemSearchInput = document.querySelector("#item-search");
 const styleSearchInput = document.querySelector("#style-search");
 const clearFiltersButton = document.querySelector("#clear-filters");
 const detailCount = document.querySelector("#detail-count");
+const weeklySyncButton = document.querySelector("#weekly-sync");
+const weeklyRefreshButton = document.querySelector("#weekly-refresh");
+const weeklySaveEditsButton = document.querySelector("#weekly-save-edits");
+const weeklyShippingDateSelect = document.querySelector("#weekly-shipping-date-select");
+const weeklySyncSummary = document.querySelector("#weekly-sync-summary");
+const weeklyCount = document.querySelector("#weekly-count");
+const weeklyTableHead = document.querySelector("#weekly-table-head");
+const weeklyTableBody = document.querySelector("#weekly-table-body");
+const weeklyScrollTop = document.querySelector("#weekly-scroll-top");
+const weeklyScrollTopInner = document.querySelector("#weekly-scroll-top-inner");
+const weeklyTableWrap = document.querySelector("#weekly-table-wrap");
+const lowRateRefreshButton = document.querySelector("#low-rate-refresh");
+const lowRateDownloadButton = document.querySelector("#low-rate-download");
+const lowRatePlannerFilter = document.querySelector("#low-rate-planner-filter");
+const lowRateStyleSearchInput = document.querySelector("#low-rate-style-search");
+const lowRateCount = document.querySelector("#low-rate-count");
+const lowRateBadge = document.querySelector("#low-rate-badge");
+const lowRateTableHead = document.querySelector("#low-rate-table-head");
+const lowRateTableBody = document.querySelector("#low-rate-table-body");
 
 const FALLBACK_COLUMNS = [
   { key: "shippingDate", header: "출고일자", sortable: true },
@@ -48,6 +67,97 @@ let selectedItemCodes = new Set();
 let shippingDateOptions = [];
 let categoryOptions = [];
 let itemOptions = [];
+let weeklyRows = [];
+let weeklyLoaded = false;
+let weeklySelectAllInput = null;
+let weeklyConfirmSelectedButton = null;
+let weeklyCancelConfirmButton = null;
+let lowRateRows = [];
+let lowRateLoaded = false;
+let weeklyLastData = null;
+let weeklyColumnFilterInputs = [];
+let weeklyTableFilterState = {
+  validationLabel: "",
+  style: "",
+  plannerName: "",
+  incomingSchedule: "",
+  shippingDate: "",
+  shippingQuantity: "",
+  shippingStores: "",
+  statusLabel: ""
+};
+let weeklySortState = { key: "", direction: "asc" };
+let weeklyScrollSyncing = false;
+
+const WEEKLY_TABLE_COLUMNS = [
+  {
+    header: "확인상태",
+    sortKey: "validationLabel",
+    filterKey: "validationLabel",
+    filterType: "select",
+    filterId: "weekly-filter-validation"
+  },
+  {
+    header: "스타일",
+    sortKey: "style",
+    filterKey: "style",
+    filterType: "search",
+    filterId: "weekly-style-search",
+    placeholder: "스타일 검색"
+  },
+  { header: "차수" },
+  {
+    header: "기획자명",
+    sortKey: "plannerName",
+    filterKey: "plannerName",
+    filterType: "select",
+    filterId: "weekly-filter-planner"
+  },
+  {
+    header: "입고예정일",
+    sortKey: "incomingSchedule",
+    filterKey: "incomingSchedule",
+    filterType: "date",
+    filterId: "weekly-filter-incoming",
+    placeholder: "날짜 선택"
+  },
+  { header: "입고예정수량" },
+  { header: "잔량" },
+  { header: "누적합" },
+  { header: "입고여부" },
+  {
+    header: "출고일자",
+    sortKey: "shippingDate",
+    filterKey: "shippingDate",
+    filterType: "date",
+    filterId: "weekly-filter-shipping-date",
+    placeholder: "날짜 선택"
+  },
+  {
+    header: "출고수량",
+    sortKey: "shippingQuantity",
+    filterKey: "shippingQuantity",
+    filterType: "search",
+    filterId: "weekly-filter-shipping-quantity",
+    placeholder: "수량"
+  },
+  {
+    header: "출고매장",
+    sortKey: "shippingStores",
+    filterKey: "shippingStores",
+    filterType: "select",
+    filterId: "weekly-filter-shipping-stores"
+  },
+  {
+    header: "상태",
+    sortKey: "statusLabel",
+    filterKey: "statusLabel",
+    filterType: "select",
+    filterId: "weekly-filter-status"
+  },
+  { header: "제외", bulk: true },
+  { header: "비고" }
+];
 
 if (!startDateInput.value) {
   startDateInput.value = todayLocalDate();
@@ -61,6 +171,18 @@ for (const tab of viewTabs) {
 }
 
 refreshButton.addEventListener("click", loadPreview);
+weeklySyncButton.addEventListener("click", syncWeeklyAccumulation);
+weeklyRefreshButton.addEventListener("click", loadWeeklyAccumulation);
+weeklySaveEditsButton.addEventListener("click", saveWeeklyEdits);
+weeklyShippingDateSelect.addEventListener("change", () => selectWeeklyRowsByShippingDate(weeklyShippingDateSelect.value));
+if (weeklyScrollTop && weeklyTableWrap) {
+  weeklyScrollTop.addEventListener("scroll", () => syncWeeklyScrollPosition(weeklyScrollTop, weeklyTableWrap));
+  weeklyTableWrap.addEventListener("scroll", () => syncWeeklyScrollPosition(weeklyTableWrap, weeklyScrollTop));
+}
+lowRateRefreshButton.addEventListener("click", loadLowShippingRate);
+lowRatePlannerFilter.addEventListener("change", loadLowShippingRate);
+lowRateStyleSearchInput.addEventListener("input", loadLowShippingRate);
+lowRateDownloadButton.addEventListener("click", downloadLowShippingRate);
 startDateInput.addEventListener("input", handleStartDateChange);
 startDateInput.addEventListener("change", handleStartDateChange);
 endDateInput.addEventListener("input", handleEndDateChange);
@@ -71,10 +193,12 @@ function handleStartDateChange() {
     endDateFollowsStart = true;
   }
   loadPreview();
+  loadActiveSupplementalData();
 }
 function handleEndDateChange() {
   endDateFollowsStart = endDateInput.value === startDateInput.value;
   loadPreview();
+  loadActiveSupplementalData();
 }
 downloadButton.addEventListener("click", () => {
   const rows = getVisibleRows();
@@ -216,6 +340,888 @@ function activateView(viewName) {
   for (const panel of viewPanels) {
     panel.hidden = panel.id !== `${viewName}-view`;
   }
+
+  if (viewName === "weekly" && !weeklyLoaded) {
+    loadWeeklyAccumulation();
+  }
+  if (viewName === "low-rate" && !lowRateLoaded) {
+    loadLowShippingRate();
+  }
+}
+
+async function syncWeeklyAccumulation() {
+  weeklySyncButton.disabled = true;
+  weeklySaveEditsButton.disabled = true;
+  weeklySyncSummary.textContent = "주간납기판을 읽고 누적 데이터에 반영하는 중입니다.";
+
+  try {
+    const response = await fetch("/api/weekly-accumulation/sync", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        startDate: startDateInput.value,
+        endDate: endDateInput.value
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "주간납기판 업데이트를 반영하지 못했습니다.");
+    }
+
+    renderWeeklySyncSummary(data.summary);
+    weeklyLoaded = false;
+    await loadWeeklyAccumulation();
+    await loadPreview();
+  } catch (error) {
+    weeklySyncSummary.textContent = error.message;
+    weeklySyncSummary.className = "weekly-sync-summary error";
+  } finally {
+    weeklySyncButton.disabled = false;
+    weeklySaveEditsButton.disabled = false;
+  }
+}
+
+async function loadWeeklyAccumulation() {
+  const params = new URLSearchParams();
+  if (startDateInput.value) {
+    params.set("startDate", startDateInput.value);
+  }
+  if (endDateInput.value) {
+    params.set("endDate", endDateInput.value);
+  }
+
+  weeklyRefreshButton.disabled = true;
+  weeklySaveEditsButton.disabled = true;
+  if (weeklyConfirmSelectedButton) {
+    weeklyConfirmSelectedButton.disabled = true;
+  }
+
+  try {
+    const response = await fetch(`/api/weekly-accumulation?${params.toString()}`, {
+      headers: { Accept: "application/json" }
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "누적 데이터를 불러오지 못했습니다.");
+    }
+
+    weeklyLoaded = true;
+    weeklyRows = data.rows || [];
+    weeklyLastData = data;
+    renderWeeklyAccumulation(data);
+  } catch (error) {
+    weeklyRows = [];
+    weeklyLastData = { rows: [], totalCount: 0, visibleCount: 0, needsCheckCount: 0 };
+    renderWeeklyAccumulation({ rows: [], totalCount: 0, visibleCount: 0, needsCheckCount: 0 });
+    weeklySyncSummary.textContent = error.message;
+    weeklySyncSummary.className = "weekly-sync-summary error";
+  } finally {
+    weeklyRefreshButton.disabled = false;
+    weeklySaveEditsButton.disabled = weeklyRows.length === 0;
+    updateWeeklyBulkControls();
+  }
+}
+
+async function saveWeeklyEdits() {
+  const edits = collectWeeklyEdits();
+  if (edits.length === 0) {
+    return;
+  }
+
+  weeklySaveEditsButton.disabled = true;
+  weeklySyncSummary.textContent = "수정 내용을 저장하는 중입니다.";
+
+  try {
+    const response = await fetch("/api/weekly-accumulation", {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ edits })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "수정 내용을 저장하지 못했습니다.");
+    }
+
+    weeklySyncSummary.textContent = `수정 저장 완료 · 데이터 확인 필요 ${formatNumber(data.needsCheckCount || 0)}건`;
+    weeklySyncSummary.className = "weekly-sync-summary neutral";
+    weeklyLoaded = false;
+    lowRateLoaded = false;
+    await loadWeeklyAccumulation();
+    await loadPreview();
+  } catch (error) {
+    weeklySyncSummary.textContent = error.message;
+    weeklySyncSummary.className = "weekly-sync-summary error";
+  } finally {
+    weeklySaveEditsButton.disabled = false;
+  }
+}
+
+function collectWeeklyEdits() {
+  return [...weeklyTableBody.querySelectorAll("tr[data-key]")].map(collectWeeklyRowEdit);
+}
+
+function collectWeeklyRowEdit(row) {
+  return {
+    key: row.dataset.key,
+    incomingDate: row.querySelector("[data-field='incomingDate']")?.value || "",
+    incomingQuantity: row.querySelector("[data-field='incomingQuantity']")?.value || "",
+    remainingQuantity: row.querySelector("[data-field='remainingQuantity']")?.value || "",
+    shippingDate: row.querySelector("[data-field='shippingDate']")?.value || "",
+    shippingQuantity: row.querySelector("[data-field='shippingQuantity']")?.value || "",
+    shippingStores: row.querySelector("[data-field='shippingStores']")?.value || "",
+    note: row.querySelector("[data-field='note']")?.value || "",
+    excluded: Boolean(row.querySelector("[data-field='excluded']")?.checked),
+    shippingConfirmed: row.dataset.shippingConfirmed === "true"
+  };
+}
+
+function updateWeeklyTableFilter(key, value) {
+  if (!key) {
+    return;
+  }
+  syncWeeklyRowsFromRenderedEdits();
+  weeklyTableFilterState[key] = String(value || "").trim();
+  renderWeeklyAccumulation(weeklyLastData || { rows: weeklyRows, totalCount: weeklyRows.length });
+}
+
+function syncWeeklyRowsFromRenderedEdits() {
+  const edits = collectWeeklyEdits();
+  if (edits.length === 0 || weeklyRows.length === 0) {
+    return;
+  }
+  const editsByKey = new Map(edits.map((edit) => [edit.key, edit]));
+  weeklyRows = weeklyRows.map((row) => {
+    const edit = editsByKey.get(row.key);
+    if (!edit) {
+      return row;
+    }
+    return {
+      ...row,
+      incomingDate: edit.incomingDate,
+      incomingQuantity: edit.incomingQuantity,
+      remainingQuantity: edit.remainingQuantity,
+      shippingDate: edit.shippingDate,
+      shippingQuantity: edit.shippingQuantity,
+      shippingStores: edit.shippingStores,
+      note: edit.note,
+      excluded: edit.excluded,
+      shippingConfirmed: edit.shippingConfirmed
+    };
+  });
+  if (weeklyLastData) {
+    weeklyLastData = { ...weeklyLastData, rows: weeklyRows };
+  }
+}
+
+function applyWeeklyTableFiltersAndSort(rows = []) {
+  const filteredRows = rows.filter((row) => {
+    return Object.entries(weeklyTableFilterState).every(([key, filter]) => {
+      if (!filter) {
+        return true;
+      }
+      return normalizeSearchText(getWeeklyFilterValue(row, key)).includes(normalizeSearchText(filter));
+    });
+  });
+
+  if (!weeklySortState.key) {
+    return filteredRows;
+  }
+
+  return [...filteredRows].sort((left, right) => {
+    const direction = weeklySortState.direction === "desc" ? -1 : 1;
+    return compareWeeklySortValues(
+      getWeeklyFilterValue(left, weeklySortState.key),
+      getWeeklyFilterValue(right, weeklySortState.key),
+      weeklySortState.key
+    ) * direction;
+  });
+}
+
+function toggleWeeklySort(key) {
+  syncWeeklyRowsFromRenderedEdits();
+  weeklySortState = weeklySortState.key === key
+    ? { key, direction: weeklySortState.direction === "asc" ? "desc" : "asc" }
+    : { key, direction: "asc" };
+  renderWeeklyAccumulation(weeklyLastData || { rows: weeklyRows, totalCount: weeklyRows.length });
+}
+
+function getWeeklyFilterValue(row, key) {
+  if (key === "validationLabel") {
+    return row.validationLabel || "정상";
+  }
+  if (key === "incomingSchedule") {
+    return row.incomingDate || row.incomingPeriod || "";
+  }
+  if (key === "statusLabel") {
+    return getWeeklyRowStatusLabel(row);
+  }
+  if (key === "shippingQuantity") {
+    return row.shippingQuantity ?? "";
+  }
+  return row[key] ?? "";
+}
+
+function compareWeeklySortValues(left, right, key) {
+  if (key === "shippingQuantity") {
+    return parseNumber(left) - parseNumber(right);
+  }
+  return compareValues(left, right);
+}
+
+function normalizeSearchText(value) {
+  return String(value ?? "").replace(/\s+/g, "").toUpperCase();
+}
+
+async function confirmSelectedWeeklyRows() {
+  const selectedRows = getWeeklyRows().filter((row) => row.querySelector("[data-field='excluded']")?.checked);
+  if (selectedRows.length === 0) {
+    weeklySyncSummary.textContent = "확정할 스타일을 선택해주세요.";
+    weeklySyncSummary.className = "weekly-sync-summary warning";
+    return;
+  }
+
+  const rowsToConfirm = selectedRows;
+  const missingShippingDateRows = rowsToConfirm.filter((row) => !collectWeeklyRowEdit(row).shippingDate);
+  if (missingShippingDateRows.length > 0) {
+    weeklySyncSummary.textContent = `출고일자가 비어있는 행 ${formatNumber(missingShippingDateRows.length)}건이 있어 확정할 수 없습니다.`;
+    weeklySyncSummary.className = "weekly-sync-summary warning";
+    return;
+  }
+  const edits = rowsToConfirm.map((row) => ({
+    ...collectWeeklyRowEdit(row),
+    excluded: true,
+    shippingConfirmed: true
+  }));
+
+  weeklyConfirmSelectedButton.disabled = true;
+  weeklySaveEditsButton.disabled = true;
+  weeklySyncSummary.textContent = `선택한 ${formatNumber(edits.length)}건을 출고리스트 확정 처리하는 중입니다.`;
+  weeklySyncSummary.className = "weekly-sync-summary neutral";
+
+  try {
+    const response = await fetch("/api/weekly-accumulation", {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ edits })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "선택한 행을 확정하지 못했습니다.");
+    }
+
+    weeklySyncSummary.textContent = `출고리스트 확정 완료 · ${formatNumber(edits.length)}건`;
+    weeklySyncSummary.className = "weekly-sync-summary neutral";
+    weeklyLoaded = false;
+    lowRateLoaded = false;
+    await loadWeeklyAccumulation();
+    await loadPreview();
+  } catch (error) {
+    weeklySyncSummary.textContent = error.message;
+    weeklySyncSummary.className = "weekly-sync-summary error";
+  } finally {
+    weeklyConfirmSelectedButton.disabled = false;
+    weeklySaveEditsButton.disabled = weeklyRows.length === 0;
+    updateWeeklyBulkControls();
+  }
+}
+
+async function cancelSelectedWeeklyConfirmations() {
+  const selectedRows = getWeeklyRows().filter((row) => row.querySelector("[data-field='excluded']")?.checked);
+  if (selectedRows.length === 0) {
+    weeklySyncSummary.textContent = "확정 취소할 행을 선택해주세요.";
+    weeklySyncSummary.className = "weekly-sync-summary warning";
+    return;
+  }
+
+  const edits = selectedRows.map((row) => ({
+    ...collectWeeklyRowEdit(row),
+    excluded: false,
+    shippingConfirmed: false
+  }));
+
+  weeklyCancelConfirmButton.disabled = true;
+  weeklyConfirmSelectedButton.disabled = true;
+  weeklySaveEditsButton.disabled = true;
+  weeklySyncSummary.textContent = `선택한 ${formatNumber(edits.length)}건의 출고확정을 취소하는 중입니다.`;
+  weeklySyncSummary.className = "weekly-sync-summary neutral";
+
+  try {
+    const response = await fetch("/api/weekly-accumulation", {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ edits })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "선택한 행의 확정을 취소하지 못했습니다.");
+    }
+
+    weeklySyncSummary.textContent = `출고확정 취소 완료 · ${formatNumber(edits.length)}건`;
+    weeklySyncSummary.className = "weekly-sync-summary neutral";
+    weeklyLoaded = false;
+    lowRateLoaded = false;
+    await loadWeeklyAccumulation();
+  } catch (error) {
+    weeklySyncSummary.textContent = error.message;
+    weeklySyncSummary.className = "weekly-sync-summary error";
+  } finally {
+    weeklyCancelConfirmButton.disabled = false;
+    weeklyConfirmSelectedButton.disabled = false;
+    weeklySaveEditsButton.disabled = weeklyRows.length === 0;
+    updateWeeklyBulkControls();
+  }
+}
+
+function setWeeklyExcludedSelection(checked) {
+  for (const row of getWeeklyRows()) {
+    const checkbox = row.querySelector("[data-field='excluded']");
+    if (!checkbox || checkbox.disabled || (checked && !isWeeklyRowSelectable(row))) {
+      continue;
+    }
+    checkbox.checked = checked;
+    updateWeeklyRowSelectionState(row);
+  }
+  updateWeeklyBulkControls();
+}
+
+function selectWeeklyRowsByShippingDate(date) {
+  let selectedCount = 0;
+  for (const row of getWeeklyRows()) {
+    const checkbox = row.querySelector("[data-field='excluded']");
+    if (!checkbox) {
+      continue;
+    }
+    const isTargetDate = collectWeeklyRowEdit(row).shippingDate === date;
+    checkbox.checked = Boolean(date) && isTargetDate && isWeeklyRowSelectable(row);
+    if (checkbox.checked) {
+      selectedCount += 1;
+    }
+    updateWeeklyRowSelectionState(row);
+  }
+
+  if (date) {
+    weeklySyncSummary.textContent = selectedCount > 0
+      ? `${formatDisplayDate(date)} 출고일자 ${formatNumber(selectedCount)}건을 선택했습니다.`
+      : `${formatDisplayDate(date)} 출고일자로 선택할 수 있는 행이 없습니다.`;
+    weeklySyncSummary.className = selectedCount > 0 ? "weekly-sync-summary neutral" : "weekly-sync-summary warning";
+  }
+  updateWeeklyBulkControls();
+}
+
+function getWeeklyRows() {
+  return [...weeklyTableBody.querySelectorAll("tr[data-key]")];
+}
+
+function updateWeeklyBulkControls() {
+  if (!weeklySelectAllInput || !weeklyConfirmSelectedButton || !weeklyCancelConfirmButton) {
+    return;
+  }
+  const rows = getWeeklyRows();
+  for (const row of rows) {
+    updateWeeklyRowSelectableState(row);
+  }
+  const checkboxes = rows.map((row) => row.querySelector("[data-field='excluded']")).filter(Boolean);
+  const selectableCheckboxes = rows
+    .filter(isWeeklyRowSelectable)
+    .map((row) => row.querySelector("[data-field='excluded']"))
+    .filter(Boolean);
+  const checkedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+  const selectableCheckedCount = selectableCheckboxes.filter((checkbox) => checkbox.checked).length;
+  const hasSelectableRows = selectableCheckboxes.length > 0;
+
+  weeklySelectAllInput.disabled = !hasSelectableRows;
+  weeklySelectAllInput.checked = hasSelectableRows && selectableCheckedCount === selectableCheckboxes.length;
+  weeklySelectAllInput.indeterminate = selectableCheckedCount > 0 && selectableCheckedCount < selectableCheckboxes.length;
+  weeklyConfirmSelectedButton.disabled = checkedCount === 0;
+  weeklyCancelConfirmButton.disabled = checkedCount === 0;
+}
+
+function updateWeeklyRowSelectionState(row) {
+  const checked = Boolean(row.querySelector("[data-field='excluded']")?.checked);
+  row.classList.toggle("excluded", checked || row.dataset.shippingConfirmed === "true");
+}
+
+function updateWeeklyRowSelectableState(row) {
+  const checkbox = row.querySelector("[data-field='excluded']");
+  if (!checkbox) {
+    return;
+  }
+  const selectable = isWeeklyRowSelectable(row);
+  checkbox.disabled = !selectable;
+  checkbox.title = selectable ? "" : "출고일자를 먼저 입력해주세요.";
+  if (!selectable) {
+    checkbox.checked = false;
+  }
+  row.classList.toggle("selection-disabled", !selectable);
+  updateWeeklyRowSelectionState(row);
+}
+
+function isWeeklyRowSelectable(row) {
+  return Boolean(collectWeeklyRowEdit(row).shippingDate);
+}
+
+function populateWeeklyShippingDateSelect(rows = []) {
+  const selected = weeklyShippingDateSelect.value;
+  const dateCounts = new Map();
+  for (const row of rows) {
+    const shippingDate = row.shippingDate || "";
+    if (!shippingDate) {
+      continue;
+    }
+    dateCounts.set(shippingDate, (dateCounts.get(shippingDate) || 0) + 1);
+  }
+
+  weeklyShippingDateSelect.replaceChildren(new Option("날짜 선택", ""));
+  for (const [date, count] of [...dateCounts.entries()].sort(([left], [right]) => compareValues(left, right))) {
+    weeklyShippingDateSelect.append(new Option(`${formatDisplayDate(date)} (${formatNumber(count)})`, date));
+  }
+  weeklyShippingDateSelect.value = [...weeklyShippingDateSelect.options].some((option) => option.value === selected)
+    ? selected
+    : "";
+}
+
+function populateWeeklyShippingDateSelectFromRows() {
+  populateWeeklyShippingDateSelect(getWeeklyRows().map((row) => collectWeeklyRowEdit(row)));
+}
+
+function bindWeeklyColumnFilterInputs() {
+  weeklyColumnFilterInputs = [...weeklyTableHead.querySelectorAll("[data-weekly-filter]")];
+  for (const input of weeklyColumnFilterInputs) {
+    input.addEventListener("input", () => updateWeeklyTableFilter(input.dataset.weeklyFilter, input.value));
+    input.addEventListener("change", () => updateWeeklyTableFilter(input.dataset.weeklyFilter, input.value));
+  }
+}
+
+function populateWeeklyColumnFilterOptions(rows = []) {
+  populateWeeklySelectFilter("validationLabel", rows);
+  populateWeeklySelectFilter("plannerName", rows);
+  populateWeeklySelectFilter("shippingStores", rows);
+  populateWeeklySelectFilter("statusLabel", rows);
+}
+
+function populateWeeklySelectFilter(key, rows) {
+  const select = weeklyColumnFilterInputs.find((input) => input.dataset.weeklyFilter === key && input.tagName === "SELECT");
+  if (!select) {
+    return;
+  }
+  const selected = weeklyTableFilterState[key] || select.value;
+  const values = [...new Set(rows.map((row) => getWeeklyFilterValue(row, key)).filter(Boolean))]
+    .sort((left, right) => compareValues(left, right));
+  select.replaceChildren(new Option("전체", ""));
+  for (const value of values) {
+    select.append(new Option(value, value));
+  }
+  select.value = values.includes(selected) ? selected : "";
+  weeklyTableFilterState[key] = select.value;
+}
+
+function renderWeeklySyncSummary(summary) {
+  if (!summary) {
+    weeklySyncSummary.textContent = "";
+    weeklySyncSummary.className = "weekly-sync-summary";
+    return;
+  }
+
+  weeklySyncSummary.className = summary.needsCheck > 0
+    ? "weekly-sync-summary warning"
+    : "weekly-sync-summary neutral";
+  weeklySyncSummary.textContent = [
+    `신규 추가 ${formatNumber(summary.added || 0)}건`,
+    `최신값 덮어쓰기 ${formatNumber(summary.updated || 0)}건`,
+    `동일 유지 ${formatNumber(summary.unchanged || 0)}건`,
+    `이전 누적 유지 ${formatNumber(summary.preserved || 0)}건`,
+    `데이터 확인 필요 ${formatNumber(summary.needsCheck || 0)}건`
+  ].join(" · ");
+}
+
+function renderWeeklyAccumulation(data) {
+  const baseRows = data.rows || [];
+  weeklyTableHead.replaceChildren();
+  weeklyTableBody.replaceChildren();
+  for (const column of WEEKLY_TABLE_COLUMNS) {
+    if (column.bulk) {
+      appendWeeklyBulkHeader(weeklyTableHead);
+    } else {
+      appendWeeklyHeader(weeklyTableHead, column);
+    }
+  }
+  bindWeeklyColumnFilterInputs();
+  populateWeeklyColumnFilterOptions(baseRows);
+
+  const rows = applyWeeklyTableFiltersAndSort(baseRows);
+  const needsCheckCount = rows.filter((row) => row.validationStatus && row.validationStatus !== "ok").length;
+  weeklyCount.textContent = `${formatNumber(rows.length)} / ${formatNumber(data.totalCount || baseRows.length)} · 확인 필요 ${formatNumber(needsCheckCount)}건`;
+  populateWeeklyShippingDateSelect(rows);
+
+  if (rows.length === 0) {
+    const tr = document.createElement("tr");
+    tr.className = "empty-row";
+    const td = document.createElement("td");
+    td.colSpan = 15;
+    td.textContent = "표시할 출고리스트 작성 데이터가 없습니다.";
+    tr.append(td);
+    weeklyTableBody.append(tr);
+    updateWeeklyBulkControls();
+    syncWeeklyScrollbars();
+    return;
+  }
+
+  for (const row of rows) {
+    weeklyTableBody.append(renderWeeklyRow(row));
+  }
+  updateWeeklyBulkControls();
+  syncWeeklyScrollbars();
+}
+
+function renderWeeklyRow(row) {
+  const tr = document.createElement("tr");
+  tr.dataset.key = row.key;
+  tr.dataset.style = row.style || "";
+  tr.dataset.shippingConfirmed = row.shippingConfirmed ? "true" : "false";
+  tr.className = [
+    "weekly-data-row",
+    row.validationStatus && row.validationStatus !== "ok" ? `validation-${row.validationStatus}` : "",
+    row.excluded || row.shippingConfirmed ? "excluded" : "",
+    row.shippingConfirmed ? "shipping-confirmed" : ""
+  ].filter(Boolean).join(" ");
+
+  appendCell(tr, row.validationLabel || "정상", "validation-cell");
+  appendCell(tr, row.style || "");
+  appendCell(tr, row.round || "");
+  appendCell(tr, row.plannerName || "");
+  if (row.incomingType === "period") {
+    appendCell(tr, row.incomingPeriod || "기간 확인 필요", "period-cell");
+  } else {
+    appendInputCell(tr, "date", "incomingDate", row.incomingDate || "");
+  }
+  appendInputCell(tr, "number", "incomingQuantity", row.incomingQuantity ?? "");
+  appendInputCell(tr, "number", "remainingQuantity", row.remainingQuantity ?? "");
+  appendCell(tr, formatNumber(row.plannedQuantity || 0), "number-cell");
+  appendCell(tr, row.incomingStatus || "");
+  appendInputCell(tr, "date", "shippingDate", row.shippingDate || "");
+  appendInputCell(tr, "number", "shippingQuantity", row.shippingQuantity ?? "");
+  appendSelectCell(tr, "shippingStores", row.shippingStores || "", ["상위매장", "전매장"]);
+  appendCell(tr, getWeeklyRowStatusLabel(row));
+  appendCheckboxCell(tr, "excluded", Boolean(row.excluded));
+  appendInputCell(tr, "text", "note", row.note || "");
+  updateWeeklyRowSelectableState(tr);
+
+  return tr;
+}
+
+function getWeeklyRowStatusLabel(row) {
+  if (row.shippingConfirmed) {
+    return "출고확정";
+  }
+  if (row.incomingType === "period" && !row.shippingDate) {
+    return "출고일자 확인 필요";
+  }
+  return row.sourceStatus === "previous" ? "이전 누적" : "최신";
+}
+
+function appendInputCell(row, type, field, value) {
+  const td = document.createElement("td");
+  const input = document.createElement("input");
+  input.type = type;
+  input.value = value;
+  input.dataset.field = field;
+  if (type === "number") {
+    input.min = "0";
+    input.step = "1";
+  }
+  if (field === "shippingDate") {
+    input.addEventListener("input", () => {
+      updateWeeklyRowSelectableState(row);
+      populateWeeklyShippingDateSelectFromRows();
+      updateWeeklyBulkControls();
+    });
+  }
+  td.append(input);
+  row.append(td);
+}
+
+function appendSelectCell(row, field, value, options = []) {
+  const td = document.createElement("td");
+  const select = document.createElement("select");
+  select.dataset.field = field;
+  for (const optionValue of options) {
+    select.append(new Option(optionValue, optionValue));
+  }
+  select.value = options.includes(value) ? value : options[0] || "";
+  td.append(select);
+  row.append(td);
+}
+
+function appendCheckboxCell(row, field, checked) {
+  const td = document.createElement("td");
+  td.className = "center-cell";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = checked;
+  input.dataset.field = field;
+  if (field === "excluded") {
+    input.addEventListener("change", () => {
+      updateWeeklyRowSelectionState(row);
+      updateWeeklyBulkControls();
+    });
+  }
+  td.append(input);
+  row.append(td);
+}
+
+function appendWeeklyHeader(row, column) {
+  const th = document.createElement("th");
+  const wrapper = document.createElement("div");
+  wrapper.className = "weekly-header-content";
+
+  if (column.sortKey) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "weekly-sort-button";
+    button.textContent = `${column.header}${weeklySortIndicator(column.sortKey)}`;
+    button.setAttribute("aria-label", `${column.header} 정렬`);
+    button.setAttribute(
+      "aria-sort",
+      weeklySortState.key === column.sortKey
+        ? weeklySortState.direction === "asc" ? "ascending" : "descending"
+        : "none"
+    );
+    button.addEventListener("click", () => toggleWeeklySort(column.sortKey));
+    wrapper.append(button);
+  } else {
+    const label = document.createElement("span");
+    label.className = "weekly-header-label";
+    label.textContent = column.header;
+    wrapper.append(label);
+  }
+
+  appendWeeklyHeaderFilter(wrapper, column);
+  th.append(wrapper);
+  row.append(th);
+}
+
+function appendWeeklyHeaderFilter(wrapper, column) {
+  if (!column.filterKey) {
+    return;
+  }
+
+  const value = weeklyTableFilterState[column.filterKey] || "";
+  if (column.filterType === "select") {
+    const select = document.createElement("select");
+    select.id = column.filterId;
+    select.className = "weekly-header-filter";
+    select.dataset.weeklyFilter = column.filterKey;
+    select.append(new Option("전체", ""));
+    select.value = value;
+    wrapper.append(select);
+    return;
+  }
+
+  const input = document.createElement("input");
+  input.id = column.filterId;
+  input.className = "weekly-header-filter";
+  input.dataset.weeklyFilter = column.filterKey;
+  input.type = column.filterType === "date" ? "date" : "search";
+  input.placeholder = column.placeholder || column.header;
+  input.autocomplete = "off";
+  input.value = value;
+  wrapper.append(input);
+}
+
+function weeklySortIndicator(key) {
+  if (weeklySortState.key !== key) {
+    return " ↕";
+  }
+  return weeklySortState.direction === "asc" ? " ▲" : " ▼";
+}
+
+function appendWeeklyBulkHeader(row) {
+  const th = document.createElement("th");
+  th.className = "weekly-bulk-head";
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "weekly-bulk-head-inner";
+
+  const label = document.createElement("label");
+  label.className = "weekly-bulk-check";
+  weeklySelectAllInput = document.createElement("input");
+  weeklySelectAllInput.id = "weekly-select-all";
+  weeklySelectAllInput.type = "checkbox";
+  weeklySelectAllInput.addEventListener("change", () => setWeeklyExcludedSelection(weeklySelectAllInput.checked));
+  label.append(weeklySelectAllInput, document.createTextNode("전체"));
+
+  const actions = document.createElement("div");
+  actions.className = "weekly-bulk-head-actions";
+
+  weeklyConfirmSelectedButton = document.createElement("button");
+  weeklyConfirmSelectedButton.id = "weekly-confirm-selected";
+  weeklyConfirmSelectedButton.className = "weekly-bulk-button";
+  weeklyConfirmSelectedButton.type = "button";
+  weeklyConfirmSelectedButton.textContent = "확정";
+  weeklyConfirmSelectedButton.addEventListener("click", confirmSelectedWeeklyRows);
+
+  weeklyCancelConfirmButton = document.createElement("button");
+  weeklyCancelConfirmButton.id = "weekly-cancel-confirm";
+  weeklyCancelConfirmButton.className = "secondary-button weekly-bulk-button";
+  weeklyCancelConfirmButton.type = "button";
+  weeklyCancelConfirmButton.textContent = "확정 취소";
+  weeklyCancelConfirmButton.addEventListener("click", cancelSelectedWeeklyConfirmations);
+  actions.append(weeklyConfirmSelectedButton, weeklyCancelConfirmButton);
+
+  const title = document.createElement("span");
+  title.className = "weekly-bulk-title";
+  title.textContent = "제외";
+  wrapper.append(label, actions, title);
+  th.append(wrapper);
+  row.append(th);
+}
+
+function isWeeklyViewActive() {
+  return document.querySelector(".view-tab.active")?.dataset.view === "weekly";
+}
+
+function isLowRateViewActive() {
+  return document.querySelector(".view-tab.active")?.dataset.view === "low-rate";
+}
+
+function syncWeeklyScrollbars() {
+  if (!weeklyScrollTop || !weeklyScrollTopInner || !weeklyTableWrap) {
+    return;
+  }
+  const table = weeklyTableWrap.querySelector(".weekly-table");
+  weeklyScrollTopInner.style.width = `${table?.scrollWidth || weeklyTableWrap.scrollWidth}px`;
+  weeklyScrollTop.scrollLeft = weeklyTableWrap.scrollLeft;
+}
+
+function syncWeeklyScrollPosition(source, target) {
+  if (weeklyScrollSyncing || !source || !target) {
+    return;
+  }
+  weeklyScrollSyncing = true;
+  target.scrollLeft = source.scrollLeft;
+  weeklyScrollSyncing = false;
+}
+
+function loadActiveSupplementalData() {
+  weeklyLoaded = false;
+  lowRateLoaded = false;
+  if (isWeeklyViewActive()) {
+    loadWeeklyAccumulation();
+  }
+  if (isLowRateViewActive()) {
+    loadLowShippingRate();
+  }
+}
+
+async function loadLowShippingRate() {
+  const params = lowShippingRateParams();
+  lowRateRefreshButton.disabled = true;
+  lowRateDownloadButton.disabled = true;
+
+  try {
+    const response = await fetch(`/api/low-shipping-rate?${params.toString()}`, {
+      headers: { Accept: "application/json" }
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "낮은 출고율 데이터를 불러오지 못했습니다.");
+    }
+
+    lowRateLoaded = true;
+    lowRateRows = data.rows || [];
+    populateLowRatePlannerFilter(data.filters?.planners || []);
+    renderLowShippingRate(data);
+  } catch (error) {
+    lowRateRows = [];
+    renderLowShippingRate({ rows: [], totalCount: 0, visibleCount: 0 });
+    lowRateBadge.textContent = error.message;
+  } finally {
+    lowRateRefreshButton.disabled = false;
+    lowRateDownloadButton.disabled = lowRateRows.length === 0;
+  }
+}
+
+function downloadLowShippingRate() {
+  if (lowRateRows.length === 0) {
+    return;
+  }
+  window.location.href = `/download-low-shipping-rate?${lowShippingRateParams().toString()}`;
+}
+
+function lowShippingRateParams() {
+  const params = new URLSearchParams();
+  if (startDateInput.value) {
+    params.set("startDate", startDateInput.value);
+  }
+  if (endDateInput.value) {
+    params.set("endDate", endDateInput.value);
+  }
+  if (lowRatePlannerFilter.value) {
+    params.set("plannerName", lowRatePlannerFilter.value);
+  }
+  if (lowRateStyleSearchInput.value.trim()) {
+    params.set("styleSearch", lowRateStyleSearchInput.value.trim());
+  }
+  return params;
+}
+
+function populateLowRatePlannerFilter(options) {
+  const selected = lowRatePlannerFilter.value;
+  lowRatePlannerFilter.replaceChildren(new Option("전체 기획자", ""));
+  for (const option of options) {
+    lowRatePlannerFilter.append(new Option(`${option.label} (${option.count})`, option.value));
+  }
+  lowRatePlannerFilter.value = [...lowRatePlannerFilter.options].some((option) => option.value === selected) ? selected : "";
+}
+
+function renderLowShippingRate(data) {
+  const rows = data.rows || [];
+  lowRateCount.textContent = `${formatNumber(data.visibleCount || rows.length)} / ${formatNumber(data.totalCount || rows.length)}`;
+  lowRateBadge.textContent = `낮은 출고율 확인필요 ${formatNumber(data.totalCount || rows.length)}건`;
+
+  lowRateTableHead.replaceChildren();
+  lowRateTableBody.replaceChildren();
+  for (const header of ["스타일", "차수", "기획자명", "입고여부", "누적입고량", "누적출고량", "입고대비 출고율", "예정 입고일정", "확인 표시"]) {
+    appendHeader(lowRateTableHead, header);
+  }
+
+  if (rows.length === 0) {
+    const tr = document.createElement("tr");
+    tr.className = "empty-row";
+    const td = document.createElement("td");
+    td.colSpan = 9;
+    td.textContent = "표시할 낮은 출고율 스타일이 없습니다.";
+    tr.append(td);
+    lowRateTableBody.append(tr);
+    return;
+  }
+
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    tr.className = "low-rate-row";
+    appendCell(tr, row.style || "");
+    appendCell(tr, row.round || "");
+    appendCell(tr, row.plannerName || "");
+    appendCell(tr, row.incomingStatus || "");
+    appendCell(tr, formatNumber(row.cumulativeIncomingQuantity || 0), "number-cell");
+    appendCell(tr, formatNumber(row.cumulativeShippingQuantity || 0), "number-cell");
+    appendCell(tr, row.shippingIncomingRateText || "", "low-rate-value");
+    appendCell(tr, row.scheduleSummary || "");
+    appendCell(tr, row.statusLabel || "낮은 출고율 확인필요", "validation-cell");
+    lowRateTableBody.append(tr);
+  }
 }
 
 function renderWeekButtons(summary) {
@@ -239,8 +1245,8 @@ function renderWeekButtons(summary) {
       startDateInput.value = week.startDate;
       endDateInput.value = week.endDate;
       endDateFollowsStart = week.startDate === week.endDate;
-      activateView("summary");
       loadPreview();
+      loadActiveSupplementalData();
     });
     weekButtons.append(button);
   }
@@ -745,6 +1751,14 @@ function todayLocalDate() {
 
 function formatNumber(value) {
   return new Intl.NumberFormat("ko-KR").format(value ?? 0);
+}
+
+function formatDisplayDate(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return value || "";
+  }
+  return `${Number(match[2])}월 ${Number(match[3])}일`;
 }
 
 function parseNumber(value) {

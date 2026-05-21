@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node server.mjs",
     "web": "node server.mjs",
-    "cli": "node generate-shipping-list.mjs"
+    "cli": "node generate-shipping-list.mjs",
+    "test": "node --test"
   }
 }

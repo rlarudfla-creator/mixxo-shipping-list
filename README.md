@@ -27,6 +27,12 @@ node server.mjs
 
 호스팅 서비스에서는 `PORT`와 `SHIPPING_LIST_PASSWORD` 환경변수를 설정하면 됩니다. 생성된 엑셀 파일은 서버에 저장하지 않고 다운로드 응답으로만 만들어집니다.
 
+## 주간납기 누적 저장
+
+`주간납기 누적` 탭은 로컬 실행 시 `.local-data/weekly-accumulation.json`에 저장합니다. 여러 사람이 같은 확정 데이터를 보려면 Google Sheet의 Apps Script에 `apps-script/weekly-accumulation.gs` 내용을 배포하고, 앱 환경변수에 `WEEKLY_ACCUMULATION_SCRIPT_URL`을 설정합니다.
+
+선택적으로 Apps Script 속성 `WEEKLY_ACCUMULATION_SCRIPT_SECRET`을 설정하고, 앱에도 같은 값을 `WEEKLY_ACCUMULATION_SCRIPT_SECRET` 환경변수로 넣으면 저장소 요청을 보호할 수 있습니다.
+
 ## CLI 실행
 
 ```powershell
