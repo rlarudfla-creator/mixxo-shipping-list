@@ -61,7 +61,7 @@ test("syncWeeklyAccumulation reads the weekly board, merges with stored rows, an
   assert.equal(result.summary.needsCheck, 1);
   assert.equal(savedItems[0].incomingQuantity, 250);
   assert.equal(savedItems[0].orderQuantity, 1000);
-  assert.equal(savedItems[0].accumulatedQuantity, 750);
+  assert.equal(savedItems[0].accumulatedQuantity, 250);
 });
 
 test("filterWeeklyItems narrows data by date range, planner, and issue-only flag", () => {

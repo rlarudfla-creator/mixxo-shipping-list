@@ -99,7 +99,7 @@ test("parseWeeklyBoardRows expands DQ to EH-before-core-product into dated incom
   );
   assert.equal(result.groups[0].plannedQuantity, 500);
   assert.equal(result.groups[0].remainingQuantity, 500);
-  assert.equal(result.groups[0].accumulatedQuantity, 1000);
+  assert.equal(result.groups[0].accumulatedQuantity, 500);
   assert.equal(result.groups[0].orderQuantity, 1000);
   assert.equal(result.groups[0].validationStatus, "ok");
 });
@@ -223,7 +223,7 @@ test("parseWeeklyBoardRows expands DZ-to-before-EH two-column period schedules",
   );
   assert.equal(result.groups[0].plannedQuantity, 3900);
   assert.equal(result.groups[0].remainingQuantity, 3900);
-  assert.equal(result.groups[0].accumulatedQuantity, 7800);
+  assert.equal(result.groups[0].accumulatedQuantity, 3900);
   assert.equal(result.groups[0].orderQuantity, 7800);
   assert.equal(result.groups[0].validationStatus, "ok");
 });
@@ -467,10 +467,10 @@ test("mergeWeeklyAccumulated drops accumulated rows that are not real style code
   assert.equal(summary.preserved, 0);
 });
 
-test("validateWeeklyItems compares incoming schedules plus remaining quantity against order quantity", () => {
+test("validateWeeklyItems compares incoming schedules against remaining quantity", () => {
   const items = [
-    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 200 },
-    { key: "A|00|2", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 200 },
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 250 },
+    { key: "A|00|2", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 250 },
     { key: "B|00|1", groupKey: "B|00", style: "B", round: "00", orderQuantity: 600, remainingQuantity: 300, incomingQuantity: 370 },
     { key: "C|00|1", groupKey: "C|00", style: "C", round: "00", orderQuantity: 100, remainingQuantity: null, incomingQuantity: 10 },
     { key: "D|00|1", groupKey: "D|00", style: "D", round: "00", orderQuantity: 200, remainingQuantity: 100, incomingQuantity: 100 },
@@ -483,17 +483,17 @@ test("validateWeeklyItems compares incoming schedules plus remaining quantity ag
   assert.equal(result.groups.find((group) => group.groupKey === "B|00").validationStatus, "over");
   assert.equal(result.groups.find((group) => group.groupKey === "C|00").validationStatus, "remaining_missing");
   assert.equal(result.groups.find((group) => group.groupKey === "D|00").validationStatus, "ok");
-  assert.equal(result.groups.find((group) => group.groupKey === "D|00").accumulatedQuantity, 200);
-  assert.equal(result.groups.find((group) => group.groupKey === "E|00").validationStatus, "order_missing");
-  assert.equal(result.needsCheckCount, 3);
+  assert.equal(result.groups.find((group) => group.groupKey === "D|00").accumulatedQuantity, 100);
+  assert.equal(result.groups.find((group) => group.groupKey === "E|00").validationStatus, "ok");
+  assert.equal(result.needsCheckCount, 2);
 });
 
-test("validateWeeklyItems treats accumulated quantity within ten percent of order quantity as normal", () => {
+test("validateWeeklyItems treats planned quantity within ten percent of remaining quantity as normal", () => {
   const result = validateWeeklyItems([
-    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 590 },
-    { key: "B|00|1", groupKey: "B|00", style: "B", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 610 },
-    { key: "C|00|1", groupKey: "C|00", style: "C", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 410 },
-    { key: "D|00|1", groupKey: "D|00", style: "D", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 390 }
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 550 },
+    { key: "B|00|1", groupKey: "B|00", style: "B", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 551 },
+    { key: "C|00|1", groupKey: "C|00", style: "C", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 450 },
+    { key: "D|00|1", groupKey: "D|00", style: "D", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 449 }
   ]);
 
   assert.equal(result.groups.find((group) => group.groupKey === "A|00").validationStatus, "ok");
@@ -505,7 +505,7 @@ test("validateWeeklyItems treats accumulated quantity within ten percent of orde
 
 test("validateWeeklyItems hides an acknowledged warning only while the validation signature matches", () => {
   const items = [
-    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 650 }
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 560 }
   ];
   const warning = validateWeeklyItems(items);
   const signature = warning.groups[0].validationSignature;
@@ -523,7 +523,7 @@ test("validateWeeklyItems hides an acknowledged warning only while the validatio
 
   const changed = validateWeeklyItems([{
     ...items[0],
-    incomingQuantity: 660,
+    incomingQuantity: 570,
     validationAcknowledged: true,
     validationSignature: signature
   }]);

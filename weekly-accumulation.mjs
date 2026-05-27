@@ -17,12 +17,12 @@ const VALIDATION_LABELS = {
   ok: "정상",
   acknowledged: "확인 완료",
   needs_check: "데이터 확인 필요",
-  over: "발주량 초과",
+  over: "잔량 초과",
   order_missing: "발주량 확인 필요",
   remaining_missing: "잔량 확인 필요"
 };
 
-const ORDER_QUANTITY_TOLERANCE_RATE = 0.1;
+const REMAINING_QUANTITY_TOLERANCE_RATE = 0.1;
 
 const COMPARISON_FIELDS = [
   "style",
@@ -360,23 +360,18 @@ export function validateWeeklyItems(items = []) {
 
   const groups = [...groupsByKey.values()].map((group) => {
     let validationStatus = "ok";
-    const accumulatedQuantity = isQuantity(group.remainingQuantity)
-      ? group.plannedQuantity + Number(group.remainingQuantity)
-      : null;
+    const accumulatedQuantity = group.plannedQuantity;
     if (!isQuantity(group.remainingQuantity)) {
       validationStatus = "remaining_missing";
-    } else if (!isQuantity(group.orderQuantity)) {
-      validationStatus = "order_missing";
-    } else if (isWithinOrderQuantityTolerance(accumulatedQuantity, group.orderQuantity)) {
+    } else if (isWithinRemainingQuantityTolerance(accumulatedQuantity, group.remainingQuantity)) {
       validationStatus = "ok";
-    } else if (accumulatedQuantity > group.orderQuantity) {
+    } else if (accumulatedQuantity > group.remainingQuantity) {
       validationStatus = "over";
     } else {
       validationStatus = "needs_check";
     }
     const validationSignature = buildValidationSignature({
       validationStatus,
-      orderQuantity: group.orderQuantity,
       remainingQuantity: group.remainingQuantity,
       plannedQuantity: group.plannedQuantity,
       accumulatedQuantity
@@ -539,24 +534,22 @@ function preserveShippingFields(base, existing, snapshotItem) {
   };
 }
 
-function isWithinOrderQuantityTolerance(accumulatedQuantity, orderQuantity) {
-  if (!isQuantity(accumulatedQuantity) || !isQuantity(orderQuantity)) {
+function isWithinRemainingQuantityTolerance(accumulatedQuantity, remainingQuantity) {
+  if (!isQuantity(accumulatedQuantity) || !isQuantity(remainingQuantity)) {
     return false;
   }
-  const tolerance = Math.abs(Number(orderQuantity)) * ORDER_QUANTITY_TOLERANCE_RATE;
-  return Math.abs(Number(accumulatedQuantity) - Number(orderQuantity)) <= tolerance;
+  const tolerance = Math.abs(Number(remainingQuantity)) * REMAINING_QUANTITY_TOLERANCE_RATE;
+  return Math.abs(Number(accumulatedQuantity) - Number(remainingQuantity)) <= tolerance;
 }
 
 function buildValidationSignature({
   validationStatus,
-  orderQuantity,
   remainingQuantity,
   plannedQuantity,
   accumulatedQuantity
 }) {
   return [
     validationStatus,
-    signatureQuantity(orderQuantity),
     signatureQuantity(remainingQuantity),
     signatureQuantity(plannedQuantity),
     signatureQuantity(accumulatedQuantity)
