@@ -721,6 +721,30 @@ h1 {
   font-weight: 900;
 }
 
+.validation-cell span {
+  display: block;
+}
+
+.validation-acknowledge-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  margin-top: 6px;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.validation-acknowledge-button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 .muted-cell {
   color: #6b7280;
   font-weight: 700;

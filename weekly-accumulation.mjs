@@ -15,11 +15,14 @@ const WEEKLY_COLUMNS = {
 
 const VALIDATION_LABELS = {
   ok: "정상",
+  acknowledged: "확인 완료",
   needs_check: "데이터 확인 필요",
   over: "발주량 초과",
   order_missing: "발주량 확인 필요",
   remaining_missing: "잔량 확인 필요"
 };
+
+const ORDER_QUANTITY_TOLERANCE_RATE = 0.1;
 
 const COMPARISON_FIELDS = [
   "style",
@@ -305,6 +308,12 @@ export function applyWeeklyItemEdits(items = [], edits = [], options = {}) {
     if ("shippingConfirmed" in edit) {
       next.shippingConfirmed = Boolean(edit.shippingConfirmed);
     }
+    if ("validationAcknowledged" in edit) {
+      next.validationAcknowledged = Boolean(edit.validationAcknowledged);
+    }
+    if ("validationSignature" in edit) {
+      next.validationSignature = cleanCell(edit.validationSignature);
+    }
     next.updatedAt = now;
     return next;
   });
@@ -327,6 +336,7 @@ export function validateWeeklyItems(items = []) {
       accumulatedQuantity: null,
       itemCount: 0,
       activeItemCount: 0,
+      acknowledgedSignatures: [],
       validationStatus: "ok",
       validationLabel: VALIDATION_LABELS.ok
     };
@@ -342,6 +352,9 @@ export function validateWeeklyItems(items = []) {
       group.activeItemCount += 1;
       group.plannedQuantity += isQuantity(item.incomingQuantity) ? Number(item.incomingQuantity) : 0;
     }
+    if (item.validationAcknowledged && cleanCell(item.validationSignature)) {
+      group.acknowledgedSignatures.push(cleanCell(item.validationSignature));
+    }
     groupsByKey.set(groupKey, group);
   }
 
@@ -354,17 +367,34 @@ export function validateWeeklyItems(items = []) {
       validationStatus = "remaining_missing";
     } else if (!isQuantity(group.orderQuantity)) {
       validationStatus = "order_missing";
+    } else if (isWithinOrderQuantityTolerance(accumulatedQuantity, group.orderQuantity)) {
+      validationStatus = "ok";
     } else if (accumulatedQuantity > group.orderQuantity) {
       validationStatus = "over";
-    } else if (accumulatedQuantity !== group.orderQuantity) {
+    } else {
       validationStatus = "needs_check";
     }
+    const validationSignature = buildValidationSignature({
+      validationStatus,
+      orderQuantity: group.orderQuantity,
+      remainingQuantity: group.remainingQuantity,
+      plannedQuantity: group.plannedQuantity,
+      accumulatedQuantity
+    });
+    const validationAcknowledged = validationStatus !== "ok" && group.acknowledgedSignatures.includes(validationSignature);
+    const visibleValidationStatus = validationAcknowledged ? "ok" : validationStatus;
+    const visibleValidationLabel = validationAcknowledged
+      ? VALIDATION_LABELS.acknowledged
+      : VALIDATION_LABELS[validationStatus];
+    const { acknowledgedSignatures, ...visibleGroup } = group;
 
     return {
-      ...group,
+      ...visibleGroup,
       accumulatedQuantity,
-      validationStatus,
-      validationLabel: VALIDATION_LABELS[validationStatus]
+      validationStatus: visibleValidationStatus,
+      validationLabel: visibleValidationLabel,
+      validationAcknowledged,
+      validationSignature
     };
   }).sort((left, right) => compareValues(left.style, right.style) || compareValues(left.round, right.round));
 
@@ -398,6 +428,8 @@ export function weeklyItemsToCsvRows(items = []) {
       "sourceStatus",
       "excluded",
       "shippingConfirmed",
+      "validationAcknowledged",
+      "validationSignature",
       "note",
       "createdAt",
       "updatedAt"
@@ -424,6 +456,8 @@ export function weeklyItemsToCsvRows(items = []) {
       item.sourceStatus || "",
       item.excluded ? "TRUE" : "FALSE",
       item.shippingConfirmed ? "TRUE" : "FALSE",
+      item.validationAcknowledged ? "TRUE" : "FALSE",
+      item.validationSignature || "",
       item.note || "",
       item.createdAt || "",
       item.updatedAt || ""
@@ -463,6 +497,8 @@ export function csvRowsToWeeklyItems(rows = []) {
         sourceStatus: cleanCell(record.sourceStatus) || "previous",
         excluded: cleanCell(record.excluded).toUpperCase() === "TRUE",
         shippingConfirmed: cleanCell(record.shippingConfirmed).toUpperCase() === "TRUE",
+        validationAcknowledged: cleanCell(record.validationAcknowledged).toUpperCase() === "TRUE",
+        validationSignature: cleanCell(record.validationSignature),
         note: cleanCell(record.note),
         createdAt: cleanCell(record.createdAt),
         updatedAt: cleanCell(record.updatedAt)
@@ -479,6 +515,8 @@ function attachValidation(items, validation) {
       ...item,
       validationStatus: group?.validationStatus || "ok",
       validationLabel: group?.validationLabel || VALIDATION_LABELS.ok,
+      validationAcknowledged: group?.validationAcknowledged || false,
+      validationSignature: group?.validationSignature || "",
       plannedQuantity: group?.plannedQuantity ?? null,
       accumulatedQuantity: group?.accumulatedQuantity ?? null
     };
@@ -495,8 +533,38 @@ function preserveShippingFields(base, existing, snapshotItem) {
     ...base,
     shippingDate: cleanCell(existing.shippingDate) || defaults.shippingDate,
     shippingQuantity,
-    shippingStores: cleanCell(existing.shippingStores) || getDefaultShippingStores(shippingQuantity)
+    shippingStores: cleanCell(existing.shippingStores) || getDefaultShippingStores(shippingQuantity),
+    validationAcknowledged: Boolean(existing.validationAcknowledged),
+    validationSignature: cleanCell(existing.validationSignature)
   };
+}
+
+function isWithinOrderQuantityTolerance(accumulatedQuantity, orderQuantity) {
+  if (!isQuantity(accumulatedQuantity) || !isQuantity(orderQuantity)) {
+    return false;
+  }
+  const tolerance = Math.abs(Number(orderQuantity)) * ORDER_QUANTITY_TOLERANCE_RATE;
+  return Math.abs(Number(accumulatedQuantity) - Number(orderQuantity)) <= tolerance;
+}
+
+function buildValidationSignature({
+  validationStatus,
+  orderQuantity,
+  remainingQuantity,
+  plannedQuantity,
+  accumulatedQuantity
+}) {
+  return [
+    validationStatus,
+    signatureQuantity(orderQuantity),
+    signatureQuantity(remainingQuantity),
+    signatureQuantity(plannedQuantity),
+    signatureQuantity(accumulatedQuantity)
+  ].join("|");
+}
+
+function signatureQuantity(value) {
+  return isQuantity(value) ? String(Number(value)) : "";
 }
 
 function hasMeaningfulChange(existing, snapshotItem) {

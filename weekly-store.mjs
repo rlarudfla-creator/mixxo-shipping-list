@@ -59,6 +59,8 @@ export async function readWeeklyAccumulation(options = {}) {
       ...item,
       validationStatus: group?.validationStatus || "ok",
       validationLabel: group?.validationLabel || "정상",
+      validationAcknowledged: group?.validationAcknowledged || false,
+      validationSignature: group?.validationSignature || "",
       plannedQuantity: group?.plannedQuantity ?? null,
       accumulatedQuantity: group?.accumulatedQuantity ?? null
     };
@@ -94,6 +96,8 @@ export async function editWeeklyAccumulation(edits = [], options = {}) {
       ...item,
       validationStatus: group?.validationStatus || "ok",
       validationLabel: group?.validationLabel || "정상",
+      validationAcknowledged: group?.validationAcknowledged || false,
+      validationSignature: group?.validationSignature || "",
       plannedQuantity: group?.plannedQuantity ?? null,
       accumulatedQuantity: group?.accumulatedQuantity ?? null
     };

@@ -488,7 +488,9 @@ function collectWeeklyRowEdit(row, remainingValues = getWeeklyGroupRemainingValu
     shippingStores: row.querySelector("[data-field='shippingStores']")?.value || "",
     note: row.querySelector("[data-field='note']")?.value || "",
     excluded: Boolean(row.querySelector("[data-field='excluded']")?.checked),
-    shippingConfirmed: row.dataset.shippingConfirmed === "true"
+    shippingConfirmed: row.dataset.shippingConfirmed === "true",
+    validationAcknowledged: row.dataset.validationAcknowledged === "true",
+    validationSignature: row.dataset.validationSignature || ""
   };
 }
 
@@ -706,6 +708,61 @@ async function confirmSelectedWeeklyRows() {
     weeklyConfirmSelectedButton.disabled = false;
     weeklySaveEditsButton.disabled = weeklyRows.length === 0;
     updateWeeklyBulkControls();
+  }
+}
+
+async function acknowledgeWeeklyValidation(row) {
+  const validationSignature = row.dataset.validationSignature || "";
+  const groupKey = row.dataset.groupKey || "";
+  if (!validationSignature || !groupKey) {
+    return;
+  }
+
+  const groupRows = getWeeklyRows().filter((candidate) => candidate.dataset.groupKey === groupKey);
+  const targetRows = groupRows.length ? groupRows : [row];
+  const remainingValues = getWeeklyGroupRemainingValues();
+  const edits = targetRows.map((targetRow) => ({
+    ...collectWeeklyRowEdit(targetRow, remainingValues),
+    validationAcknowledged: true,
+    validationSignature
+  }));
+  const buttons = targetRows
+    .map((targetRow) => targetRow.querySelector(".validation-acknowledge-button"))
+    .filter(Boolean);
+
+  for (const button of buttons) {
+    button.disabled = true;
+  }
+  weeklySaveEditsButton.disabled = true;
+  weeklySyncSummary.textContent = "확인 완료를 저장하는 중입니다.";
+  weeklySyncSummary.className = "weekly-sync-summary neutral";
+
+  try {
+    const response = await fetch("/api/weekly-accumulation", {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ edits })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "확인 완료를 저장하지 못했습니다.");
+    }
+
+    weeklySyncSummary.textContent = `확인 완료 저장 · 데이터 확인 필요 ${formatNumber(data.needsCheckCount || 0)}건`;
+    weeklySyncSummary.className = "weekly-sync-summary neutral";
+    weeklyLoaded = false;
+    await loadWeeklyAccumulation();
+  } catch (error) {
+    weeklySyncSummary.textContent = error.message;
+    weeklySyncSummary.className = "weekly-sync-summary error";
+    for (const button of buttons) {
+      button.disabled = false;
+    }
+  } finally {
+    weeklySaveEditsButton.disabled = weeklyRows.length === 0;
   }
 }
 
@@ -973,6 +1030,9 @@ function renderWeeklyRow(row) {
   tr.dataset.style = row.style || "";
   tr.dataset.remainingQuantity = row.remainingQuantity ?? "";
   tr.dataset.shippingConfirmed = row.shippingConfirmed ? "true" : "false";
+  tr.dataset.validationAcknowledged = row.validationAcknowledged ? "true" : "false";
+  tr.dataset.validationSignature = row.validationSignature || "";
+  tr.dataset.validationStatus = row.validationStatus || "ok";
   tr.className = [
     "weekly-data-row",
     row.validationStatus && row.validationStatus !== "ok" ? `validation-${row.validationStatus}` : "",
@@ -980,7 +1040,7 @@ function renderWeeklyRow(row) {
     row.shippingConfirmed ? "shipping-confirmed" : ""
   ].filter(Boolean).join(" ");
 
-  appendCell(tr, row.validationLabel || "정상", "validation-cell");
+  appendValidationCell(tr, row);
   appendCell(tr, row.style || "");
   appendCell(tr, getWeeklyItemCode(row));
   appendCell(tr, row.round || "");
@@ -1007,6 +1067,25 @@ function renderWeeklyRow(row) {
   updateWeeklyRowSelectableState(tr);
 
   return tr;
+}
+
+function appendValidationCell(rowElement, row) {
+  const td = document.createElement("td");
+  td.className = "validation-cell";
+  const label = document.createElement("span");
+  label.textContent = row.validationLabel || "정상";
+  td.append(label);
+
+  if (row.validationStatus === "over" || row.validationStatus === "needs_check") {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "validation-acknowledge-button";
+    button.textContent = "확인 완료";
+    button.addEventListener("click", () => acknowledgeWeeklyValidation(rowElement));
+    td.append(button);
+  }
+
+  rowElement.append(td);
 }
 
 function getWeeklyRowStatusLabel(row) {

@@ -362,7 +362,7 @@ test("mergeWeeklyAccumulated overwrites changed keys, skips identical rows, adds
     updated: 1,
     unchanged: 1,
     preserved: 1,
-    needsCheck: 1
+    needsCheck: 0
   });
   assert.equal(result.items.find((item) => item.key === "MIWTEST100|00|1").incomingQuantity, 200);
   assert.equal(result.items.find((item) => item.key === "MIWOLD200|00|1").sourceStatus, "previous");
@@ -471,7 +471,7 @@ test("validateWeeklyItems compares incoming schedules plus remaining quantity ag
   const items = [
     { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 200 },
     { key: "A|00|2", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 200 },
-    { key: "B|00|1", groupKey: "B|00", style: "B", round: "00", orderQuantity: 600, remainingQuantity: 300, incomingQuantity: 350 },
+    { key: "B|00|1", groupKey: "B|00", style: "B", round: "00", orderQuantity: 600, remainingQuantity: 300, incomingQuantity: 370 },
     { key: "C|00|1", groupKey: "C|00", style: "C", round: "00", orderQuantity: 100, remainingQuantity: null, incomingQuantity: 10 },
     { key: "D|00|1", groupKey: "D|00", style: "D", round: "00", orderQuantity: 200, remainingQuantity: 100, incomingQuantity: 100 },
     { key: "E|00|1", groupKey: "E|00", style: "E", round: "00", orderQuantity: null, remainingQuantity: 100, incomingQuantity: 100 }
@@ -479,13 +479,55 @@ test("validateWeeklyItems compares incoming schedules plus remaining quantity ag
 
   const result = validateWeeklyItems(items);
 
-  assert.equal(result.groups.find((group) => group.groupKey === "A|00").validationStatus, "needs_check");
+  assert.equal(result.groups.find((group) => group.groupKey === "A|00").validationStatus, "ok");
   assert.equal(result.groups.find((group) => group.groupKey === "B|00").validationStatus, "over");
   assert.equal(result.groups.find((group) => group.groupKey === "C|00").validationStatus, "remaining_missing");
   assert.equal(result.groups.find((group) => group.groupKey === "D|00").validationStatus, "ok");
   assert.equal(result.groups.find((group) => group.groupKey === "D|00").accumulatedQuantity, 200);
   assert.equal(result.groups.find((group) => group.groupKey === "E|00").validationStatus, "order_missing");
-  assert.equal(result.needsCheckCount, 4);
+  assert.equal(result.needsCheckCount, 3);
+});
+
+test("validateWeeklyItems treats accumulated quantity within ten percent of order quantity as normal", () => {
+  const result = validateWeeklyItems([
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 590 },
+    { key: "B|00|1", groupKey: "B|00", style: "B", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 610 },
+    { key: "C|00|1", groupKey: "C|00", style: "C", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 410 },
+    { key: "D|00|1", groupKey: "D|00", style: "D", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 390 }
+  ]);
+
+  assert.equal(result.groups.find((group) => group.groupKey === "A|00").validationStatus, "ok");
+  assert.equal(result.groups.find((group) => group.groupKey === "B|00").validationStatus, "over");
+  assert.equal(result.groups.find((group) => group.groupKey === "C|00").validationStatus, "ok");
+  assert.equal(result.groups.find((group) => group.groupKey === "D|00").validationStatus, "needs_check");
+  assert.equal(result.needsCheckCount, 2);
+});
+
+test("validateWeeklyItems hides an acknowledged warning only while the validation signature matches", () => {
+  const items = [
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 650 }
+  ];
+  const warning = validateWeeklyItems(items);
+  const signature = warning.groups[0].validationSignature;
+
+  assert.equal(warning.groups[0].validationStatus, "over");
+
+  const acknowledged = validateWeeklyItems(items.map((item) => ({
+    ...item,
+    validationAcknowledged: true,
+    validationSignature: signature
+  })));
+  assert.equal(acknowledged.groups[0].validationStatus, "ok");
+  assert.equal(acknowledged.groups[0].validationLabel, "확인 완료");
+  assert.equal(acknowledged.needsCheckCount, 0);
+
+  const changed = validateWeeklyItems([{
+    ...items[0],
+    incomingQuantity: 660,
+    validationAcknowledged: true,
+    validationSignature: signature
+  }]);
+  assert.equal(changed.groups[0].validationStatus, "over");
 });
 
 test("applyWeeklyItemEdits updates quantities and excludes rows before validation", () => {
@@ -523,6 +565,38 @@ test("applyWeeklyItemEdits saves editable shipping fields", () => {
   assert.equal(edited[0].shippingQuantity, 240);
   assert.equal(edited[0].shippingStores, "상위매장");
   assert.equal(edited[0].updatedAt, "2026-05-21T02:00:00.000Z");
+});
+
+test("applyWeeklyItemEdits saves validation acknowledgement fields", () => {
+  const items = [
+    { key: "A|00|1", groupKey: "A|00", style: "A", round: "00", orderQuantity: 1000, remainingQuantity: 500, incomingQuantity: 650 }
+  ];
+
+  const edited = applyWeeklyItemEdits(items, [
+    { key: "A|00|1", validationAcknowledged: true, validationSignature: "over|1000|500|650|1150" }
+  ]);
+
+  assert.equal(edited[0].validationAcknowledged, true);
+  assert.equal(edited[0].validationSignature, "over|1000|500|650|1150");
+});
+
+test("weekly csv rows preserve validation acknowledgement fields", () => {
+  const rows = weeklyItemsToCsvRows([
+    {
+      key: "A|00|1",
+      groupKey: "A|00",
+      style: "A",
+      round: "00",
+      validationAcknowledged: true,
+      validationSignature: "over|1000|500|650|1150"
+    }
+  ]);
+  const parsed = csvRowsToWeeklyItems(rows);
+
+  assert.equal(rows[0].includes("validationAcknowledged"), true);
+  assert.equal(rows[0].includes("validationSignature"), true);
+  assert.equal(parsed[0].validationAcknowledged, true);
+  assert.equal(parsed[0].validationSignature, "over|1000|500|650|1150");
 });
 
 test("applyWeeklyItemEdits treats remaining quantity as a style-round group value", () => {
