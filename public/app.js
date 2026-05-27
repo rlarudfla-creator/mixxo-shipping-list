@@ -518,7 +518,7 @@ function updateWeeklyTableFilter(key, value) {
   const activeFilterState = getWeeklyActiveFilterState();
   syncWeeklyRowsFromRenderedEdits();
   weeklyTableFilterState[key] = String(value || "").trim();
-  renderWeeklyAccumulation(weeklyLastData || { rows: weeklyRows, totalCount: weeklyRows.length });
+  renderWeeklyTableRows(weeklyLastData || { rows: weeklyRows, totalCount: weeklyRows.length });
   restoreWeeklyActiveFilterState(activeFilterState);
 }
 
@@ -1019,7 +1019,6 @@ function renderWeeklySyncSummary(summary) {
 function renderWeeklyAccumulation(data) {
   const baseRows = data.rows || [];
   weeklyTableHead.replaceChildren();
-  weeklyTableBody.replaceChildren();
   for (const column of WEEKLY_TABLE_COLUMNS) {
     if (column.bulk) {
       appendWeeklyBulkHeader(weeklyTableHead);
@@ -1029,7 +1028,12 @@ function renderWeeklyAccumulation(data) {
   }
   bindWeeklyColumnFilterInputs();
   populateWeeklyColumnFilterOptions(baseRows);
+  renderWeeklyTableRows(data);
+}
 
+function renderWeeklyTableRows(data) {
+  const baseRows = data.rows || [];
+  weeklyTableBody.replaceChildren();
   const rows = applyWeeklyTableFiltersAndSort(baseRows);
   const needsCheckCount = rows.filter((row) => row.validationStatus && row.validationStatus !== "ok").length;
   weeklyCount.textContent = `${formatNumber(rows.length)} / ${formatNumber(data.totalCount || baseRows.length)} · 확인 필요 ${formatNumber(needsCheckCount)}건`;

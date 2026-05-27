@@ -39,6 +39,9 @@ test("weekly authoring UI supports style search, column filters, sorting, and tw
   const handler = await readFile(new URL("../app-handler.mjs", import.meta.url), "utf8");
   const script = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
   const styles = await readFile(new URL("../public/app.css", import.meta.url), "utf8");
+  const updateFilterStart = script.indexOf("function updateWeeklyTableFilter");
+  const updateFilterEnd = script.indexOf("function getWeeklyActiveFilterState");
+  const updateFilterBody = script.slice(updateFilterStart, updateFilterEnd);
 
   assert.equal(handler.includes("weekly-column-filters"), false);
   assert.equal(handler.includes('id="weekly-style-search"'), false);
@@ -68,7 +71,9 @@ test("weekly authoring UI supports style search, column filters, sorting, and tw
   assert.equal(script.includes("applyWeeklyTableFiltersAndSort"), true);
   assert.equal(script.includes("getWeeklyActiveFilterState"), true);
   assert.equal(script.includes("restoreWeeklyActiveFilterState"), true);
-  assert.match(script, /updateWeeklyTableFilter[\s\S]+getWeeklyActiveFilterState[\s\S]+renderWeeklyAccumulation[\s\S]+restoreWeeklyActiveFilterState/);
+  assert.equal(script.includes("renderWeeklyTableRows"), true);
+  assert.equal(updateFilterBody.includes("renderWeeklyTableRows"), true);
+  assert.equal(updateFilterBody.includes("renderWeeklyAccumulation"), false);
   assert.equal(script.includes("saveWeeklyValidationAcknowledgementForRows"), true);
   assert.equal(script.includes("weekly-validation-bulk-ack"), true);
   assert.equal(script.includes("validation-acknowledge-checkbox"), true);
