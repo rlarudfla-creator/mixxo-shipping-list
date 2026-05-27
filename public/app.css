@@ -725,24 +725,36 @@ h1 {
   display: block;
 }
 
-.validation-acknowledge-button {
+.weekly-validation-bulk,
+.validation-acknowledge-label {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
   min-height: 26px;
-  margin-top: 6px;
-  border-radius: 6px;
-  padding: 0 8px;
-  background: var(--accent);
-  color: #ffffff;
+  color: var(--text);
   font-size: 12px;
   font-weight: 900;
   white-space: nowrap;
 }
 
-.validation-acknowledge-button:disabled {
-  opacity: 0.5;
+.weekly-validation-bulk {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.weekly-validation-bulk input,
+.validation-acknowledge-checkbox {
+  width: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.weekly-validation-bulk input:disabled,
+.validation-acknowledge-checkbox:disabled {
   cursor: wait;
+  opacity: 0.45;
 }
 
 .muted-cell {

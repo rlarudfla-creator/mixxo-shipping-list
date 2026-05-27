@@ -76,6 +76,7 @@ let lowRateRows = [];
 let lowRateLoaded = false;
 let weeklyLastData = null;
 let weeklyColumnFilterInputs = [];
+let weeklyValidationBulkCheckbox = null;
 let weeklyTableFilterState = {
   validationLabel: "",
   style: "",
@@ -96,7 +97,8 @@ const WEEKLY_TABLE_COLUMNS = [
     sortKey: "validationLabel",
     filterKey: "validationLabel",
     filterType: "select",
-    filterId: "weekly-filter-validation"
+    filterId: "weekly-filter-validation",
+    validationBulk: true
   },
   {
     header: "스타일",
@@ -711,30 +713,40 @@ async function confirmSelectedWeeklyRows() {
   }
 }
 
-async function acknowledgeWeeklyValidation(row) {
-  const validationSignature = row.dataset.validationSignature || "";
-  const groupKey = row.dataset.groupKey || "";
-  if (!validationSignature || !groupKey) {
+async function saveWeeklyValidationAcknowledgementForRows(rowElements, acknowledged) {
+  const rows = Array.isArray(rowElements) ? rowElements : [rowElements];
+  const signatureByGroup = new Map();
+  for (const row of rows) {
+    if (!isWeeklyValidationAcknowledgeableRow(row)) {
+      continue;
+    }
+    signatureByGroup.set(row.dataset.groupKey || "", row.dataset.validationSignature || "");
+  }
+  signatureByGroup.delete("");
+  if (signatureByGroup.size === 0) {
     return;
   }
 
-  const groupRows = getWeeklyRows().filter((candidate) => candidate.dataset.groupKey === groupKey);
-  const targetRows = groupRows.length ? groupRows : [row];
-  const remainingValues = getWeeklyGroupRemainingValues();
-  const edits = targetRows.map((targetRow) => ({
-    ...collectWeeklyRowEdit(targetRow, remainingValues),
-    validationAcknowledged: true,
-    validationSignature
-  }));
-  const buttons = targetRows
-    .map((targetRow) => targetRow.querySelector(".validation-acknowledge-button"))
-    .filter(Boolean);
-
-  for (const button of buttons) {
-    button.disabled = true;
+  syncWeeklyRowsFromRenderedEdits();
+  const edits = weeklyRows
+    .filter((row) => signatureByGroup.has(row.groupKey || `${row.style || ""}|${row.round || ""}`))
+    .map((row) => {
+      const groupKey = row.groupKey || `${row.style || ""}|${row.round || ""}`;
+      return {
+        ...weeklyRowToEdit(row),
+        validationAcknowledged: Boolean(acknowledged),
+        validationSignature: signatureByGroup.get(groupKey) || row.validationSignature || ""
+      };
+    });
+  if (edits.length === 0) {
+    return;
   }
+
+  setWeeklyValidationControlsDisabled(true);
   weeklySaveEditsButton.disabled = true;
-  weeklySyncSummary.textContent = "확인 완료를 저장하는 중입니다.";
+  weeklySyncSummary.textContent = acknowledged
+    ? "확인 완료를 저장하는 중입니다."
+    : "확인 완료를 해제하는 중입니다.";
   weeklySyncSummary.className = "weekly-sync-summary neutral";
 
   try {
@@ -748,21 +760,45 @@ async function acknowledgeWeeklyValidation(row) {
     });
     const data = await response.json();
     if (!response.ok) {
-      throw new Error(data.error || "확인 완료를 저장하지 못했습니다.");
+      throw new Error(data.error || "확인상태를 저장하지 못했습니다.");
     }
 
-    weeklySyncSummary.textContent = `확인 완료 저장 · 데이터 확인 필요 ${formatNumber(data.needsCheckCount || 0)}건`;
+    weeklySyncSummary.textContent = `${acknowledged ? "확인 완료 저장" : "확인 완료 해제"} · 데이터 확인 필요 ${formatNumber(data.needsCheckCount || 0)}건`;
     weeklySyncSummary.className = "weekly-sync-summary neutral";
     weeklyLoaded = false;
     await loadWeeklyAccumulation();
   } catch (error) {
     weeklySyncSummary.textContent = error.message;
     weeklySyncSummary.className = "weekly-sync-summary error";
-    for (const button of buttons) {
-      button.disabled = false;
-    }
+    setWeeklyValidationControlsDisabled(false);
   } finally {
     weeklySaveEditsButton.disabled = weeklyRows.length === 0;
+  }
+}
+
+function weeklyRowToEdit(row) {
+  return {
+    key: row.key,
+    incomingDate: row.incomingDate || "",
+    incomingQuantity: row.incomingQuantity ?? "",
+    remainingQuantity: row.remainingQuantity ?? "",
+    shippingDate: row.shippingDate || "",
+    shippingQuantity: row.shippingQuantity ?? "",
+    shippingStores: row.shippingStores || "",
+    note: row.note || "",
+    excluded: Boolean(row.excluded),
+    shippingConfirmed: Boolean(row.shippingConfirmed),
+    validationAcknowledged: Boolean(row.validationAcknowledged),
+    validationSignature: row.validationSignature || ""
+  };
+}
+
+function setWeeklyValidationControlsDisabled(disabled) {
+  for (const checkbox of weeklyTableBody.querySelectorAll(".validation-acknowledge-checkbox")) {
+    checkbox.disabled = disabled;
+  }
+  if (weeklyValidationBulkCheckbox) {
+    weeklyValidationBulkCheckbox.disabled = disabled || weeklyValidationBulkCheckbox.dataset.hasTargets !== "true";
   }
 }
 
@@ -998,6 +1034,7 @@ function renderWeeklyAccumulation(data) {
   const needsCheckCount = rows.filter((row) => row.validationStatus && row.validationStatus !== "ok").length;
   weeklyCount.textContent = `${formatNumber(rows.length)} / ${formatNumber(data.totalCount || baseRows.length)} · 확인 필요 ${formatNumber(needsCheckCount)}건`;
   populateWeeklyShippingDateSelect(rows);
+  updateWeeklyValidationBulkControl(rows);
 
   if (rows.length === 0) {
     const tr = document.createElement("tr");
@@ -1008,6 +1045,7 @@ function renderWeeklyAccumulation(data) {
     tr.append(td);
     weeklyTableBody.append(tr);
     updateWeeklyBulkControls();
+    updateWeeklyValidationBulkControl(rows);
     syncWeeklyScrollbars();
     return;
   }
@@ -1020,6 +1058,7 @@ function renderWeeklyAccumulation(data) {
     weeklyTableBody.append(renderWeeklyRow({ ...row, showRemainingQuantityInput }));
   }
   updateWeeklyBulkControls();
+  updateWeeklyValidationBulkControl(rows);
   syncWeeklyScrollbars();
 }
 
@@ -1072,20 +1111,40 @@ function renderWeeklyRow(row) {
 function appendValidationCell(rowElement, row) {
   const td = document.createElement("td");
   td.className = "validation-cell";
-  const label = document.createElement("span");
-  label.textContent = row.validationLabel || "정상";
-  td.append(label);
-
-  if (row.validationStatus === "over" || row.validationStatus === "needs_check") {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "validation-acknowledge-button";
-    button.textContent = "확인 완료";
-    button.addEventListener("click", () => acknowledgeWeeklyValidation(rowElement));
-    td.append(button);
+  if (isWeeklyValidationAcknowledgeableData(row)) {
+    const label = document.createElement("label");
+    label.className = "validation-acknowledge-label";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "validation-acknowledge-checkbox";
+    checkbox.checked = Boolean(row.validationAcknowledged);
+    checkbox.setAttribute("aria-label", "확인 완료");
+    checkbox.addEventListener("change", () => saveWeeklyValidationAcknowledgementForRows(rowElement, checkbox.checked));
+    const text = document.createElement("span");
+    text.textContent = row.validationLabel || "정상";
+    label.append(checkbox, text);
+    td.append(label);
+  } else {
+    const label = document.createElement("span");
+    label.textContent = row.validationLabel || "정상";
+    td.append(label);
   }
 
   rowElement.append(td);
+}
+
+function isWeeklyValidationAcknowledgeableData(row = {}) {
+  return Boolean(row.validationSignature)
+    && (row.validationAcknowledged || row.validationStatus === "over" || row.validationStatus === "needs_check");
+}
+
+function isWeeklyValidationAcknowledgeableRow(row) {
+  if (!row?.dataset?.validationSignature) {
+    return false;
+  }
+  return row.dataset.validationAcknowledged === "true"
+    || row.dataset.validationStatus === "over"
+    || row.dataset.validationStatus === "needs_check";
 }
 
 function getWeeklyRowStatusLabel(row) {
@@ -1175,8 +1234,41 @@ function appendWeeklyHeader(row, column) {
   }
 
   appendWeeklyHeaderFilter(wrapper, column);
+  if (column.validationBulk) {
+    appendWeeklyValidationBulkControls(wrapper);
+  }
   th.append(wrapper);
   row.append(th);
+}
+
+function appendWeeklyValidationBulkControls(wrapper) {
+  const label = document.createElement("label");
+  label.className = "weekly-validation-bulk";
+  const checkbox = document.createElement("input");
+  checkbox.id = "weekly-validation-bulk-ack";
+  checkbox.type = "checkbox";
+  checkbox.dataset.hasTargets = "false";
+  checkbox.addEventListener("change", () => {
+    const rows = getWeeklyRows().filter(isWeeklyValidationAcknowledgeableRow);
+    saveWeeklyValidationAcknowledgementForRows(rows, checkbox.checked);
+  });
+  const text = document.createElement("span");
+  text.textContent = "전체 확인/해제";
+  label.append(checkbox, text);
+  wrapper.append(label);
+  weeklyValidationBulkCheckbox = checkbox;
+}
+
+function updateWeeklyValidationBulkControl(rows = []) {
+  if (!weeklyValidationBulkCheckbox) {
+    return;
+  }
+  const targets = rows.filter(isWeeklyValidationAcknowledgeableData);
+  const acknowledgedCount = targets.filter((row) => row.validationAcknowledged).length;
+  weeklyValidationBulkCheckbox.dataset.hasTargets = targets.length > 0 ? "true" : "false";
+  weeklyValidationBulkCheckbox.disabled = targets.length === 0;
+  weeklyValidationBulkCheckbox.checked = targets.length > 0 && acknowledgedCount === targets.length;
+  weeklyValidationBulkCheckbox.indeterminate = acknowledgedCount > 0 && acknowledgedCount < targets.length;
 }
 
 function appendWeeklyHeaderFilter(wrapper, column) {

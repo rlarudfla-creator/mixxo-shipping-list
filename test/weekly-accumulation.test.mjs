@@ -578,6 +578,13 @@ test("applyWeeklyItemEdits saves validation acknowledgement fields", () => {
 
   assert.equal(edited[0].validationAcknowledged, true);
   assert.equal(edited[0].validationSignature, "over|1000|500|650|1150");
+
+  const cleared = applyWeeklyItemEdits(edited, [
+    { key: "A|00|1", validationAcknowledged: false, validationSignature: "over|1000|500|650|1150" }
+  ]);
+
+  assert.equal(cleared[0].validationAcknowledged, false);
+  assert.equal(cleared[0].validationSignature, "over|1000|500|650|1150");
 });
 
 test("weekly csv rows preserve validation acknowledgement fields", () => {
