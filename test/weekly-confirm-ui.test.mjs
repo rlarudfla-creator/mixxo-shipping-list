@@ -76,10 +76,16 @@ test("weekly authoring UI supports style search, column filters, sorting, and tw
   assert.equal(updateFilterBody.includes("renderWeeklyAccumulation"), false);
   assert.equal(script.includes("saveWeeklyValidationAcknowledgementForRows"), true);
   assert.equal(script.includes("weekly-validation-bulk-ack"), true);
+  assert.equal(script.includes("weekly-validation-confirm"), true);
+  assert.equal(script.includes("weekly-validation-clear"), true);
+  assert.equal(script.includes("confirmSelectedWeeklyValidations"), true);
+  assert.equal(script.includes("clearSelectedWeeklyValidations"), true);
+  assert.equal(script.includes("updateWeeklyValidationSelectionState"), true);
   assert.equal(script.includes("validation-acknowledge-checkbox"), true);
   assert.equal(script.includes("updateWeeklyValidationBulkControl"), true);
   assert.equal(script.includes("validationSignature"), true);
   assert.equal(script.includes("validation-acknowledge-button"), false);
+  assert.equal(script.includes("saveWeeklyValidationAcknowledgementForRows(rowElement, checkbox.checked)"), false);
   assert.equal(script.includes("weekly-filter-item"), true);
   assert.equal(script.includes("getWeeklyItemCode"), true);
   assert.equal(script.includes("showRemainingQuantityInput"), true);

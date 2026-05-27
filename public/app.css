@@ -738,8 +738,22 @@ h1 {
 }
 
 .weekly-validation-bulk {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
   margin-top: 4px;
   color: var(--muted);
+}
+
+.weekly-validation-bulk-check,
+.weekly-validation-bulk-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.weekly-validation-bulk-actions {
+  align-items: stretch;
 }
 
 .weekly-validation-bulk input,

@@ -77,6 +77,8 @@ let lowRateLoaded = false;
 let weeklyLastData = null;
 let weeklyColumnFilterInputs = [];
 let weeklyValidationBulkCheckbox = null;
+let weeklyValidationConfirmButton = null;
+let weeklyValidationClearButton = null;
 let weeklyTableFilterState = {
   validationLabel: "",
   style: "",
@@ -800,6 +802,39 @@ function setWeeklyValidationControlsDisabled(disabled) {
   if (weeklyValidationBulkCheckbox) {
     weeklyValidationBulkCheckbox.disabled = disabled || weeklyValidationBulkCheckbox.dataset.hasTargets !== "true";
   }
+  if (weeklyValidationConfirmButton) {
+    weeklyValidationConfirmButton.disabled = disabled || getSelectedWeeklyValidationRows().length === 0;
+  }
+  if (weeklyValidationClearButton) {
+    weeklyValidationClearButton.disabled = disabled || getSelectedWeeklyValidationRows().length === 0;
+  }
+}
+
+function getSelectedWeeklyValidationRows() {
+  return getWeeklyRows().filter((row) => {
+    const checkbox = row.querySelector(".validation-acknowledge-checkbox");
+    return Boolean(checkbox?.checked) && isWeeklyValidationAcknowledgeableRow(row);
+  });
+}
+
+function confirmSelectedWeeklyValidations() {
+  const rows = getSelectedWeeklyValidationRows();
+  if (rows.length === 0) {
+    weeklySyncSummary.textContent = "확인 완료할 행을 선택해주세요.";
+    weeklySyncSummary.className = "weekly-sync-summary warning";
+    return;
+  }
+  saveWeeklyValidationAcknowledgementForRows(rows, true);
+}
+
+function clearSelectedWeeklyValidations() {
+  const rows = getSelectedWeeklyValidationRows();
+  if (rows.length === 0) {
+    weeklySyncSummary.textContent = "확인 완료를 해제할 행을 선택해주세요.";
+    weeklySyncSummary.className = "weekly-sync-summary warning";
+    return;
+  }
+  saveWeeklyValidationAcknowledgementForRows(rows, false);
 }
 
 async function cancelSelectedWeeklyConfirmations() {
@@ -1121,9 +1156,9 @@ function appendValidationCell(rowElement, row) {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.className = "validation-acknowledge-checkbox";
-    checkbox.checked = Boolean(row.validationAcknowledged);
+    checkbox.checked = false;
     checkbox.setAttribute("aria-label", "확인 완료");
-    checkbox.addEventListener("change", () => saveWeeklyValidationAcknowledgementForRows(rowElement, checkbox.checked));
+    checkbox.addEventListener("change", updateWeeklyValidationSelectionState);
     const text = document.createElement("span");
     text.textContent = row.validationLabel || "정상";
     label.append(checkbox, text);
@@ -1246,20 +1281,43 @@ function appendWeeklyHeader(row, column) {
 }
 
 function appendWeeklyValidationBulkControls(wrapper) {
+  const container = document.createElement("div");
+  container.className = "weekly-validation-bulk";
   const label = document.createElement("label");
-  label.className = "weekly-validation-bulk";
+  label.className = "weekly-validation-bulk-check";
   const checkbox = document.createElement("input");
   checkbox.id = "weekly-validation-bulk-ack";
   checkbox.type = "checkbox";
   checkbox.dataset.hasTargets = "false";
   checkbox.addEventListener("change", () => {
-    const rows = getWeeklyRows().filter(isWeeklyValidationAcknowledgeableRow);
-    saveWeeklyValidationAcknowledgementForRows(rows, checkbox.checked);
+    for (const row of getWeeklyRows().filter(isWeeklyValidationAcknowledgeableRow)) {
+      const rowCheckbox = row.querySelector(".validation-acknowledge-checkbox");
+      if (rowCheckbox && !rowCheckbox.disabled) {
+        rowCheckbox.checked = checkbox.checked;
+      }
+    }
+    updateWeeklyValidationSelectionState();
   });
   const text = document.createElement("span");
-  text.textContent = "전체 확인/해제";
+  text.textContent = "전체";
   label.append(checkbox, text);
-  wrapper.append(label);
+  const actions = document.createElement("div");
+  actions.className = "weekly-validation-bulk-actions";
+  weeklyValidationConfirmButton = document.createElement("button");
+  weeklyValidationConfirmButton.id = "weekly-validation-confirm";
+  weeklyValidationConfirmButton.className = "weekly-bulk-button";
+  weeklyValidationConfirmButton.type = "button";
+  weeklyValidationConfirmButton.textContent = "확인";
+  weeklyValidationConfirmButton.addEventListener("click", confirmSelectedWeeklyValidations);
+  weeklyValidationClearButton = document.createElement("button");
+  weeklyValidationClearButton.id = "weekly-validation-clear";
+  weeklyValidationClearButton.className = "secondary-button weekly-bulk-button";
+  weeklyValidationClearButton.type = "button";
+  weeklyValidationClearButton.textContent = "해제";
+  weeklyValidationClearButton.addEventListener("click", clearSelectedWeeklyValidations);
+  actions.append(weeklyValidationConfirmButton, weeklyValidationClearButton);
+  container.append(label, actions);
+  wrapper.append(container);
   weeklyValidationBulkCheckbox = checkbox;
 }
 
@@ -1268,11 +1326,31 @@ function updateWeeklyValidationBulkControl(rows = []) {
     return;
   }
   const targets = rows.filter(isWeeklyValidationAcknowledgeableData);
-  const acknowledgedCount = targets.filter((row) => row.validationAcknowledged).length;
   weeklyValidationBulkCheckbox.dataset.hasTargets = targets.length > 0 ? "true" : "false";
   weeklyValidationBulkCheckbox.disabled = targets.length === 0;
-  weeklyValidationBulkCheckbox.checked = targets.length > 0 && acknowledgedCount === targets.length;
-  weeklyValidationBulkCheckbox.indeterminate = acknowledgedCount > 0 && acknowledgedCount < targets.length;
+  updateWeeklyValidationSelectionState();
+}
+
+function updateWeeklyValidationSelectionState() {
+  if (!weeklyValidationBulkCheckbox) {
+    return;
+  }
+  const checkboxes = getWeeklyRows()
+    .filter(isWeeklyValidationAcknowledgeableRow)
+    .map((row) => row.querySelector(".validation-acknowledge-checkbox"))
+    .filter(Boolean);
+  const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+  const hasTargets = checkboxes.length > 0;
+  weeklyValidationBulkCheckbox.dataset.hasTargets = hasTargets ? "true" : "false";
+  weeklyValidationBulkCheckbox.disabled = !hasTargets;
+  weeklyValidationBulkCheckbox.checked = hasTargets && selectedCount === checkboxes.length;
+  weeklyValidationBulkCheckbox.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
+  if (weeklyValidationConfirmButton) {
+    weeklyValidationConfirmButton.disabled = selectedCount === 0;
+  }
+  if (weeklyValidationClearButton) {
+    weeklyValidationClearButton.disabled = selectedCount === 0;
+  }
 }
 
 function appendWeeklyHeaderFilter(wrapper, column) {
