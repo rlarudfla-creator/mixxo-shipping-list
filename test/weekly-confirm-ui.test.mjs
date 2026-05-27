@@ -66,6 +66,9 @@ test("weekly authoring UI supports style search, column filters, sorting, and tw
   }
   assert.equal(script.includes("weeklyTableFilterState"), true);
   assert.equal(script.includes("applyWeeklyTableFiltersAndSort"), true);
+  assert.equal(script.includes("getWeeklyActiveFilterState"), true);
+  assert.equal(script.includes("restoreWeeklyActiveFilterState"), true);
+  assert.match(script, /updateWeeklyTableFilter[\s\S]+getWeeklyActiveFilterState[\s\S]+renderWeeklyAccumulation[\s\S]+restoreWeeklyActiveFilterState/);
   assert.equal(script.includes("weekly-filter-item"), true);
   assert.equal(script.includes("getWeeklyItemCode"), true);
   assert.equal(script.includes("showRemainingQuantityInput"), true);

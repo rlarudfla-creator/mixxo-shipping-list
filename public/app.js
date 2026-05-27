@@ -511,9 +511,45 @@ function updateWeeklyTableFilter(key, value) {
   if (!key) {
     return;
   }
+  const activeFilterState = getWeeklyActiveFilterState();
   syncWeeklyRowsFromRenderedEdits();
   weeklyTableFilterState[key] = String(value || "").trim();
   renderWeeklyAccumulation(weeklyLastData || { rows: weeklyRows, totalCount: weeklyRows.length });
+  restoreWeeklyActiveFilterState(activeFilterState);
+}
+
+function getWeeklyActiveFilterState() {
+  const activeElement = document.activeElement;
+  if (!activeElement?.dataset?.weeklyFilter) {
+    return null;
+  }
+
+  return {
+    key: activeElement.dataset.weeklyFilter,
+    selectionStart: activeElement.selectionStart,
+    selectionEnd: activeElement.selectionEnd
+  };
+}
+
+function restoreWeeklyActiveFilterState(state) {
+  if (!state?.key) {
+    return;
+  }
+
+  const input = weeklyTableHead.querySelector(`[data-weekly-filter="${state.key}"]`);
+  if (!input) {
+    return;
+  }
+
+  input.focus({ preventScroll: true });
+  if (
+    typeof input.setSelectionRange === "function"
+    && Number.isInteger(state.selectionStart)
+    && Number.isInteger(state.selectionEnd)
+  ) {
+    const end = input.value.length;
+    input.setSelectionRange(Math.min(state.selectionStart, end), Math.min(state.selectionEnd, end));
+  }
 }
 
 function syncWeeklyRowsFromRenderedEdits() {
