@@ -213,36 +213,21 @@ function handleEndDateChange() {
   loadActiveSupplementalData();
 }
 downloadButton.addEventListener("click", () => {
-  const rows = getVisibleRows();
-  if (!startDateInput.value || !endDateInput.value || rows.length === 0) {
+  if (!startDateInput.value || !endDateInput.value || latestRows.length === 0) {
     return;
   }
 
-  const params = new URLSearchParams({
+  window.location.href = `/download?${buildDetailDownloadParams().toString()}`;
+});
+
+function buildDetailDownloadParams() {
+  return new URLSearchParams({
     startDate: startDateInput.value,
     endDate: endDateInput.value,
     sortKey: sortState.key,
     sortDirection: sortState.direction
   });
-
-  for (const shippingDate of selectedShippingDates) {
-    params.append("shippingDate", shippingDate);
-  }
-  for (const category of selectedCategories) {
-    params.append("category", category);
-  }
-  for (const itemCode of selectedItemCodes) {
-    params.append("itemCode", itemCode);
-  }
-  if (itemSearchInput.value.trim()) {
-    params.set("itemSearch", itemSearchInput.value.trim());
-  }
-  if (styleSearchInput.value.trim()) {
-    params.set("styleSearch", styleSearchInput.value.trim());
-  }
-
-  window.location.href = `/download?${params.toString()}`;
-});
+}
 
 shippingDateFilterButton.addEventListener("click", () => toggleMultiFilter(shippingDateFilterMenu, shippingDateFilterButton));
 categoryFilterButton.addEventListener("click", () => toggleMultiFilter(categoryFilterMenu, categoryFilterButton));
@@ -331,7 +316,7 @@ async function loadPreview() {
       return;
     }
 
-    downloadButton.disabled = getVisibleRows().length === 0;
+    downloadButton.disabled = latestRows.length === 0;
     setStatus(`${data.targetSheetDate} 기준 ${data.outputCount}개 스타일을 다운로드할 수 있습니다.`);
   } catch (error) {
     renderEmptyTable();
@@ -1807,7 +1792,7 @@ function appendCell(row, text, className = "") {
 function renderFilteredTable() {
   const rows = getVisibleRows();
   renderTable(latestColumns, rows);
-  downloadButton.disabled = rows.length === 0;
+  downloadButton.disabled = latestRows.length === 0;
   detailCount.textContent = latestRows.length ? `${formatNumber(rows.length)} / ${formatNumber(latestRows.length)}` : "";
 }
 
